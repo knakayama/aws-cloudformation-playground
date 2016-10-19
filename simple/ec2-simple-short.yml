@@ -1,0 +1,117 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: YAML Short form
+
+Parameters:
+  NameTagPrefix:
+    Type: String
+    Default: test
+    Description: Prefix of Name tags.
+  KeyPair:
+    Description: KeyPair Name
+    Type: AWS::EC2::KeyPair::KeyName
+
+Mappings:
+  StackConfig:
+    VPC:
+      CIDR: 10.0.0.0/16
+    PublicSubnet:
+      CIDR: 10.0.0.0/24
+    EC2:
+      InstanceType: t2.nano
+      ImageId: ami-1a15c77b
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !FindInMap [ StackConfig, VPC, CIDR ]
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Join [ "-", [ !Ref NameTagPrefix, vpc ] ]
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Join [ "-", [ !Ref NameTagPrefix, igw ] ]
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    DependsOn: AttachGateway
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Join [ "-", [ !Ref NameTagPrefix, public-route-table ] ]
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    DependsOn: AttachGateway
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select
+        - 0
+        - Fn::GetAZs: !Ref "AWS::Region"
+      CidrBlock: !FindInMap [ StackConfig, PublicSubnet, CIDR ]
+      Tags:
+        - Key: Name
+          Value: !Join [ "-", [ !Ref NameTagPrefix, public-subnet ] ]
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+  EC2SG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable ssh access to the instances
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Join [ "-", [ !Ref NameTagPrefix, sg ] ]
+  EC2:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !FindInMap [ StackConfig, EC2, InstanceType ]
+      KeyName: !Ref KeyPair
+      ImageId: !FindInMap [ StackConfig, EC2, ImageId ]
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeviceIndex: 0
+          GroupSet:
+            - !Ref EC2SG
+          SubnetId: !Ref PublicSubnet
+      UserData: !Base64 |
+        #!/bin/bash
+        yum update -y
+        yum install nginx -y
+        service nginx start
+      Tags:
+        - Key: Name
+          Value: !Join [ "-", [ !Ref NameTagPrefix, ec2 ] ]
+
+Outputs:
+  PublicSubnet:
+    Value: !GetAtt [ EC2, PublicIp ]
