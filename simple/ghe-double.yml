@@ -1,0 +1,286 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: GHE Double Template
+
+Parameters:
+  NameTagPrefix:
+    Description: Prefix of Name tag.
+    Type: String
+    Default: ghe
+  AllowedCidrBlock:
+    Description: The IP address range that can be used to ghe instances for SSH or Admin page.
+    Type: String
+    MinLength: 9
+    MaxLength: 18
+    Default: 0.0.0.0/0
+    AllowedPattern: "^(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})$"
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
+  VpcCidr:
+    Description: The IP address range that can be used to VPC.
+    Type: String
+    MinLength: 9
+    MaxLength: 18
+    Default: 172.16.0.0/16
+    AllowedPattern: "^(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})$"
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
+  PublicSubnetCidr:
+    Description: The IP address range that can be used to public subnet.
+    Type: String
+    MinLength: 9
+    MaxLength: 18
+    Default: 172.16.0.0/24
+    AllowedPattern: "^(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})$"
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
+  KeyPair:
+    Description: KeyPair Name.
+    Type: AWS::EC2::KeyPair::KeyName
+
+Mappings:
+  AMIConfig:
+    ap-northeast-1:
+      AMIId: ami-9aa205fb
+    ap-northeast-2:
+      AMIId: ami-5cf12532
+    ap-south-1:
+      AMIId: ami-5d621632
+    ap-southeast-1:
+      AMIId: ami-8b983ee8
+    ap-southeast-2:
+      AMIId: ami-fe7e439d
+    eu-central-1:
+      AMIId: ami-45f20b2a
+    eu-west-1:
+      AMIId: ami-2d420d5e
+    sa-east-1:
+      AMIId: ami-4b71ec27
+    us-east-1:
+      AMIId: ami-d24312c5
+    us-west-1:
+      AMIId: ami-d7c58db7
+    us-west-2:
+      AMIId: ami-39953059
+    us-gov-west-1:
+      AMIId: ami-6fe25a0e
+  EC2Config:
+    GHE01:
+      InstanceType: r3.large
+      RootDeviceName: /dev/sda1
+      RootVolumeSize: 80
+      DataVolumeName: /dev/sdf
+      DataVolumeSize: 100
+    GHE02:
+      InstanceType: r3.large
+      RootDeviceName: /dev/sda1
+      RootVolumeSize: 80
+      DataVolumeName: /dev/sdf
+      DataVolumeSize: 100
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: General Configuration
+        Parameters:
+          - NameTagPrefix
+          - KeyPair
+      - Label:
+          default: Network Configuration
+        Parameters:
+          - AllowedCidrBlock
+          - VpcCidr
+          - PublicSubnetCidr
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      InstanceTenancy: default
+      Tags:
+        - Key: Name
+          Value: !Join [ "-", [ !Ref NameTagPrefix, VPC ] ]
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Join [ "-", [ !Ref NameTagPrefix, IGW ] ]
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    DependsOn: AttachGateway
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Join [ "-", [ !Ref NameTagPrefix, PublicRouteTable ] ]
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    DependsOn: AttachGateway
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select
+        - 0
+        - Fn::GetAZs: !Ref "AWS::Region"
+      CidrBlock: !Ref PublicSubnetCidr
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Join [ "-", [ !Ref NameTagPrefix, PublicSubnet ] ]
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  GHEIamRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join [ "-", [ !Ref NameTagPrefix, role ] ]
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+  GHEInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+        - !Ref GHEIamRole
+
+  GHESG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable specific traffic to the ghe instances
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref AllowedCidrBlock
+        - IpProtocol: tcp
+          FromPort: 122
+          ToPort: 122
+          CidrIp: !Ref AllowedCidrBlock
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !Ref AllowedCidrBlock
+        - IpProtocol: tcp
+          FromPort: 8443
+          ToPort: 8443
+          CidrIp: !Ref AllowedCidrBlock
+      Tags:
+        - Key: Name
+          Value: !Join [ "-", [ !Ref NameTagPrefix, sg ] ]
+  GHE01:
+    Type: AWS::EC2::Instance
+    Properties:
+      BlockDeviceMappings:
+        - DeviceName: !FindInMap [ EC2Config, GHE01, RootDeviceName ]
+          Ebs:
+            VolumeSize: !FindInMap [ EC2Config, GHE01, RootVolumeSize ]
+            VolumeType: gp2
+      IamInstanceProfile: !Ref GHEInstanceProfile
+      ImageId: !FindInMap [ AMIConfig, !Ref "AWS::Region", AMIId ]
+      InstanceInitiatedShutdownBehavior: stop
+      InstanceType: !FindInMap [ EC2Config, GHE01, InstanceType ]
+      KeyName: !Ref KeyPair
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeleteOnTermination: true
+          DeviceIndex: 0
+          GroupSet:
+            - !Ref GHESG
+          SubnetId: !Ref PublicSubnet
+      UserData: !Base64 |
+        #!/bin/bash
+        git clone -b stable https://github.com/github/backup-utils.git /opt/backup-utils
+        cp /opt/backup-utils/backup.config-example /opt/backup-utils/share/github-backup-utils/ghe-backup-config
+      Tags:
+        - Key: Name
+          Value: !Join [ "-", [ !Ref NameTagPrefix, "01" ] ]
+  GHE01Volume:
+    Type: AWS::EC2::Volume
+    Properties:
+      Size: !FindInMap [ EC2Config, GHE01, DataVolumeSize ]
+      VolumeType: gp2
+      AvailabilityZone: !GetAtt [ GHE01, AvailabilityZone ]
+  GHE01MountPoint:
+     Type: AWS::EC2::VolumeAttachment
+     Properties:
+       InstanceId: !Ref GHE01
+       VolumeId: !Ref GHE01Volume
+       Device: !FindInMap [ EC2Config, GHE01, DataVolumeName ]
+  GHE01EIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      InstanceId: !Ref GHE01
+
+  GHE02:
+    Type: AWS::EC2::Instance
+    Properties:
+      BlockDeviceMappings:
+        - DeviceName: !FindInMap [ EC2Config, GHE02, RootDeviceName ]
+          Ebs:
+            VolumeSize: !FindInMap [ EC2Config, GHE02, RootVolumeSize ]
+            VolumeType: gp2
+      IamInstanceProfile: !Ref GHEInstanceProfile
+      ImageId: !FindInMap [ AMIConfig, !Ref "AWS::Region", AMIId ]
+      InstanceInitiatedShutdownBehavior: stop
+      InstanceType: !FindInMap [ EC2Config, GHE02, InstanceType ]
+      KeyName: !Ref KeyPair
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeleteOnTermination: true
+          DeviceIndex: 0
+          GroupSet:
+            - !Ref GHESG
+          SubnetId: !Ref PublicSubnet
+      UserData: !Base64 |
+        #!/bin/bash
+        git clone -b stable https://github.com/github/backup-utils.git /opt/backup-utils
+        cp /opt/backup-utils/backup.config-example /opt/backup-utils/share/github-backup-utils/ghe-backup-config
+      Tags:
+        - Key: Name
+          Value: !Join [ "-", [ !Ref NameTagPrefix, "02" ] ]
+  GHE02Volume:
+    Type: AWS::EC2::Volume
+    Properties:
+      Size: !FindInMap [ EC2Config, GHE02, DataVolumeSize ]
+      VolumeType: gp2
+      AvailabilityZone: !GetAtt [ GHE02, AvailabilityZone ]
+  GHE02MountPoint:
+     Type: AWS::EC2::VolumeAttachment
+     Properties:
+       InstanceId: !Ref GHE02
+       VolumeId: !Ref GHE02Volume
+       Device: !FindInMap [ EC2Config, GHE02, DataVolumeName ]
+  GHE02EIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      InstanceId: !Ref GHE02
+
+Outputs:
+  GHE01PublicIp:
+    Value: !GetAtt [ GHE01, PublicIp ]
+  GHE02PublicIp:
+    Value: !GetAtt [ GHE02, PublicIp ]
