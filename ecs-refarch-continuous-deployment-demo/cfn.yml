@@ -1,0 +1,83 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: ecs-refarch-continuous-deployment main stack
+
+Parameters:
+  GitHubUser:
+    Type: String
+    Default: awslabs
+  GitHubRepo:
+    Type: String
+    Default: ecs-demo-php-simple-app
+  GitHubBranch:
+    Type: String
+    Default: master
+  GitHubToken:
+    Type: String
+  VpcCIDR:
+    Type: String
+  Subnet1CIDR:
+    Type: String
+  Subnet2CIDR:
+    Type: String
+  TemplateBucket:
+    Type: String
+
+Resources:
+  VPC:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: src/vpc.yml
+      Parameters:
+        Name: !Ref AWS::StackName
+        VpcCIDR: !Ref VpcCIDR
+        Subnet1CIDR: !Ref Subnet1CIDR
+        Subnet2CIDR: !Ref Subnet2CIDR
+
+  LoadBalancer:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: src/load-balancer.yml
+      Parameters:
+        Subnets: !GetAtt VPC.Outputs.Subnets
+        VpcId: !GetAtt VPC.Outputs.VpcId
+
+  Cluster:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: src/ecs-cluster.yml
+      Parameters:
+        SourceSecurityGroup: !GetAtt LoadBalancer.Outputs.SecurityGroup
+        Subnets: !GetAtt VPC.Outputs.Subnets
+        VpcId: !GetAtt VPC.Outputs.VpcId
+
+  Service:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: src/service.yml
+      Parameters:
+        Cluster: !GetAtt Cluster.Outputs.ClusterName
+        TargetGroup: !GetAtt LoadBalancer.Outputs.TargetGroup
+
+  DeploymentPipeline:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: src/deployment-pipeline.yml
+      Parameters:
+        Cluster: !GetAtt Cluster.Outputs.ClusterName
+        GitHubUser: !Ref GitHubUser
+        GitHubToken: !Ref GitHubToken
+        GitHubRepo: !Ref GitHubRepo
+        GitHubBranch: !Ref GitHubBranch
+        TargetGroup: !GetAtt LoadBalancer.Outputs.TargetGroup
+        Repository: !GetAtt Service.Outputs.Repository
+        StackName: !GetAtt Service.Outputs.StackName
+        TemplateBucket: !Ref TemplateBucket
+
+Outputs:
+  ServiceUrl:
+    Description: The sample service that is being continuously deployed.
+    Value: !GetAtt LoadBalancer.Outputs.ServiceUrl
+  #PipelineUrl:
+  #  Description: The continuous deployment pipeline in the AWS Management Console.
+  #  Value: !GetAtt DeploymentPipeline.Outputs.PipelineUrl

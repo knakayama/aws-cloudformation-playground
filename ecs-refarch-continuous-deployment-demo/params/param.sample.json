@@ -1,0 +1,12 @@
+{
+  "Parameters": {
+    "GitHubUser": "awslabs",
+    "GitHubRepo": "ecs-demo-php-simple-app",
+    "GitHubBranch": "master",
+    "GitHubToken": "_YOUR_GITHUB_TOKEN_",
+    "VpcCIDR": "10.215.0.0/16",
+    "Subnet1CIDR": "10.215.10.0/24",
+    "Subnet2CIDR": "10.215.20.0/24",
+    "TemplateBucket": "ecs-refarch-continuous-deployment"
+  }
+}
