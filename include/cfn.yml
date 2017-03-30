@@ -1,0 +1,23 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: include
+
+Parameters:
+  ArtifactBucket:
+    Type: String
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: General Configuration
+        Parameters:
+          - ArtifactBucket
+    ParameterLabels:
+      ArtifactBucket:
+        default: Artifact Bucket
+
+Transform:
+  Name: AWS::Include
+  Parameters:
+    Location: !Sub s3://${ArtifactBucket}/vpc.yml
