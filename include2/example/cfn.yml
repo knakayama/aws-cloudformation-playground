@@ -1,0 +1,35 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: lambda-backed-custom-resource-backed-aws-transform
+
+Parameters:
+  ArtifactBucket:
+    Type: String
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: General Configuration
+        Parameters:
+          - ArtifactBucket
+    ParameterLabels:
+      ArtifactBucket:
+        default: Artifact Bucket
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 192.168.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+
+Transform:
+  Name: AWS::Include
+  Parameters:
+    Location: !Sub s3://${ArtifactBucket}/latest-ami.yml
+
+Outputs:
+  ImageId:
+    Value: !GetAtt Custom.ImageId
