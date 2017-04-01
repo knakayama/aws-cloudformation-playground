@@ -1,0 +1,28 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: Lambda-backed Custom Resource Demo
+
+Parameters:
+  ArtifactBucket:
+    Type: String
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: General Configuration
+        Parameters:
+          - ArtifactBucket
+    ParameterLabels:
+      ArtifactBucket:
+        default: Artifact Bucket
+
+Resources:
+  Fn::Transform:
+    Name: AWS::Include
+    Parameters:
+      Location: !Sub s3://${ArtifactBucket}/latest-ami.yml
+
+Outputs:
+  ImageId:
+    Value: !GetAtt CustomAMIInfo.ImageId

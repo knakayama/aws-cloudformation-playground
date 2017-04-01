@@ -1,0 +1,67 @@
+LambdaRole:
+  Type: AWS::IAM::Role
+  Properties:
+    AssumeRolePolicyDocument:
+      Version: "2012-10-17"
+      Statement:
+        - Sid: AssumeRolePolicy
+          Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+          Action: sts:AssumeRole
+    Path: /
+    ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+    Policies:
+      - PolicyName: EC2Access
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - ec2:DescribeImages
+              Resource: "*"
+LambdaAMIInfo:
+  Type: AWS::Lambda::Function
+  Properties:
+    Handler: index.handler
+    Role:
+      Fn::GetAtt: LambdaRole.Arn
+    Runtime: python2.7
+    Timeout: 20
+    Code:
+      ZipFile: |
+        from __future__ import print_function
+        from botocore.exceptions import ClientError
+        import cfnresponse
+        import boto3
+        def handler(event, context):
+            if event['RequestType'] == 'Delete':
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+            #print(event['ResourceProperties']['ArtifactBucket'])
+            print(event)
+            response_data = {}
+            filters = [
+                {'Name': 'architecture', 'Values': ['x86_64']},
+                {'Name': 'root-device-type', 'Values': ['ebs']},
+                {'Name': 'name', 'Values': ['amzn-ami-hvm-*']},
+                {'Name': 'virtualization-type', 'Values': ['hvm']},
+                {'Name': 'block-device-mapping.volume-type', 'Values': ['gp2']}]
+            try:
+                images = boto3.client('ec2').describe_images(Owners=['amazon'], Filters=filters)
+            except ClientError as e:
+                print(e['Error']['Message'])
+                cfnresponse.send(event, context, cfnresponse.FAILED, {})
+            for i in sorted([image for image in images['Images']], key=lambda x: x['Name']):
+                if i['Name'].lower().count('beta') > 0 or i['Name'].lower().count('.rc') > 0:
+                    continue
+                response_data['ImageId'] = i['ImageId']
+            cfnresponse.send(event, context, cfnresponse.SUCCESS, response_data)
+CustomAMIInfo:
+  Type: Custom::AMIInfo
+  Version: 1.0
+  Properties:
+    ServiceToken:
+      Fn::GetAtt: LambdaAMIInfo.Arn
+    ArtifactBucket:
+      Ref: ArtifactBucket
