@@ -17,13 +17,14 @@ Metadata:
       ArtifactBucket:
         default: Artifact Bucket
 
-Resources:
-  VPC:
-    Type: AWS::EC2::VPC
-    Properties:
-      CidrBlock: 192.168.0.0/16
-      EnableDnsSupport: true
-      EnableDnsHostnames: true
+# not work
+#Resources:
+#  VPC:
+#    Type: AWS::EC2::VPC
+#    Properties:
+#      CidrBlock: 192.168.0.0/16
+#      EnableDnsSupport: true
+#      EnableDnsHostnames: true
 
 Transform:
   Name: AWS::Include
