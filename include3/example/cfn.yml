@@ -1,0 +1,64 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: lambda-backed-custom-resource-backed-aws-transform
+
+Parameters:
+  ArtifactBucket:
+    Type: String
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: General Configuration
+        Parameters:
+          - ArtifactBucket
+    ParameterLabels:
+      ArtifactBucket:
+        default: Artifact Bucket
+
+Resources:
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Sid: AssumeRolePolicy
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: EC2Access
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeImages
+                Resource: "*"
+  Lambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Role: !GetAtt LambdaRole.Arn
+      Runtime: python2.7
+      Timeout: 20
+      Code:
+        Fn::Transform:
+          Name: AWS::Include
+          Parameters:
+            Location: !Sub s3://${ArtifactBucket}/latest-ami.yml
+  Custom:
+    Type: Custom::Lambda
+    Version: 1.0
+    Properties:
+      ServiceToken: !GetAtt Lambda.Arn
+
+Outputs:
+  ImageId:
+    Value: !GetAtt Custom.ImageId

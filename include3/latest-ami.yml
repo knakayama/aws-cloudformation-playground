@@ -1,0 +1,24 @@
+ZipFile: |
+  from botocore.exceptions import ClientError
+  import cfnresponse
+  import boto3
+  def handler(event, context):
+      if event['RequestType'] == 'Delete':
+          cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+      response_data = {}
+      filters = [
+          {'Name': 'architecture', 'Values': ['x86_64']},
+          {'Name': 'root-device-type', 'Values': ['ebs']},
+          {'Name': 'name', 'Values': ['amzn-ami-hvm-*']},
+          {'Name': 'virtualization-type', 'Values': ['hvm']},
+          {'Name': 'block-device-mapping.volume-type', 'Values': ['gp2']}]
+      try:
+          images = boto3.client('ec2').describe_images(Owners=['amazon'], Filters=filters)
+      except ClientError as e:
+          print(e['Error']['Message'])
+          cfnresponse.send(event, context, cfnresponse.FAILED, {})
+      for i in sorted([image for image in images['Images']], key=lambda x: x['Name']):
+          if i['Name'].lower().count('beta') > 0 or i['Name'].lower().count('.rc') > 0:
+              continue
+          response_data['ImageId'] = i['ImageId']
+      cfnresponse.send(event, context, cfnresponse.SUCCESS, response_data)
