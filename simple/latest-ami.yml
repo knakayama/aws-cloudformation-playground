@@ -1,0 +1,81 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: Latest Bucket
+
+Resources:
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Sid: AssumeRolePolicy
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: EC2Access
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeImages
+                Resource: "*"
+  LambdaAMIInfo:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Role: !GetAtt LambdaRole.Arn
+      Runtime: nodejs6.10
+      Timeout: 20
+      Code:
+        ZipFile: |
+          var response = require('cfn-response');
+          var aws = require('aws-sdk');
+          exports.handler = (event, context, callback) => {
+            var responseData = {};
+            if (event.RequestType === 'Delete') {
+              response.send(event, context, response.SUCCESS, responseData);
+            }
+            var ec2 = new aws.EC2();
+            var params = {
+              Filters: [
+                { Name: 'architecture', Values: ['x86_64'] },
+                { Name: 'root-device-type', Values: ['ebs'] },
+                { Name: 'name', Values: ['amzn-ami-hvm-*'] },
+                { Name: 'virtualization-type', Values: ['hvm'] },
+                { Name: 'block-device-mapping.volume-type', Values: ['gp2'] }
+              ]
+            };
+            ec2.describeImages(params, (err, data) => {
+              if (err) {
+                console.log(err, err.stack);
+                response.send(event, context, response.FAILED, responseData);
+              }
+              var images = data.Images;
+              images.sort((x, y) => { return y.Name.localeCompare(x.Name); });
+              for (var i = 0; i < images.length; i++) {
+                if (isBeta(images[i].Name)) continue;
+                responseData.ImageId = images[i].ImageId;
+                break;
+              });
+              response.send(event, context, response.SUCCESS, responseData);
+            });
+          };
+          function isBeta(imageName) {
+            return imageName.toLowerCase().indexOf('beta') > -1 || imageName.toLowerCase().indexOf('.rc') > -1;
+          };
+  CustomAMIInfo:
+    Type: Custom::AMIInfo
+    Version: 1.0
+    Properties:
+      ServiceToken: !GetAtt LambdaAMIInfo.Arn
+
+Outputs:
+  ImageId:
+    Value: !GetAtt CustomAMIInfo.ImageId
