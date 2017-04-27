@@ -63,7 +63,7 @@ Resources:
                 if (isBeta(images[i].Name)) continue;
                 responseData.ImageId = images[i].ImageId;
                 break;
-              });
+              }
               response.send(event, context, response.SUCCESS, responseData);
             });
           };
