@@ -1,0 +1,24 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: Export Stack
+
+Resources:
+  Ec2ServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${AWS::StackName}-Ec2ServiceRole
+      AssumeRolePolicyDocument:
+        Statement:
+          - Sid: Ec2AssumeRolePolicy
+            Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+
+Outputs:
+  Ec2ServiceRoleName:
+    Value: !Ref Ec2ServiceRole
+    Export:
+      Name: !Sub ${AWS::StackName}-Ec2ServiceRoleName

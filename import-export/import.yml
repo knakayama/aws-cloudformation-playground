@@ -1,0 +1,21 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: Import Stack
+
+Parameters:
+  ExportStackName:
+    Type: String
+    Default: export-stack
+
+Resources:
+  Ec2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+        - Fn::ImportValue:
+            !Sub ${ExportStackName}-Ec2ServiceRoleName
+
+Outputs:
+  Ec2InstanceProfileName:
+    Value: !Ref Ec2InstanceProfile
