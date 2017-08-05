@@ -1,0 +1,249 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: ECS Sample Stack
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+
+Resources:
+  ELBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VpcId
+      GroupDescription: !Ref AWS::StackName
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: 0.0.0.0/0
+  ContainerInstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VpcId
+      GroupDescription: !Ref AWS::StackName
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref ELBSecurityGroup
+  MountTargetSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VpcId
+      GroupDescription: !Ref AWS::StackName
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 2049
+          ToPort: 2049
+          SourceSecurityGroupId: !Ref ContainerInstanceSecurityGroup
+  FileSystem:
+    Type: AWS::EFS::FileSystem
+  MountTarget1:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref FileSystem
+      SubnetId: !Select [ 0, Ref: SubnetIds ]
+      SecurityGroups:
+        - !Ref MountTargetSecurityGroup
+  MountTarget2:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref FileSystem
+      SubnetId: !Select [ 1, Ref: SubnetIds ]
+      SecurityGroups:
+        - !Ref MountTargetSecurityGroup
+  ELB:
+    Type: AWS::ElasticLoadBalancing::LoadBalancer
+    Properties:
+      Subnets: !Ref SubnetIds
+      SecurityGroups:
+        - !Ref ELBSecurityGroup
+      Listeners:
+        - LoadBalancerPort: 3306
+          InstancePort: 3306
+          Protocol: TCP
+      HealthCheck:
+        Target: TCP:3306
+        HealthyThreshold: 2
+        UnhealthyThreshold: 2
+        Interval: 30
+        Timeout: 5
+  Cluster:
+    Type: AWS::ECS::Cluster
+
+  ServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceRole
+
+  Service:
+    DependsOn:
+      - ContainerInstanceAutoScalingGroup
+    Type: AWS::ECS::Service
+    Properties:
+      Cluster: !Ref Cluster
+      DesiredCount: 1
+      Role: !Ref ServiceRole
+      TaskDefinition: !Ref TaskDefinition
+      LoadBalancers:
+        - ContainerName: efsdemo
+          ContainerPort: 3306
+          LoadBalancerName: !Ref ELB
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      ContainerDefinitions:
+        - Name: efsdemo
+          Cpu: 10
+          Essential: true
+          Image: mysql
+          Memory: 500
+          Environment:
+            - Name: MYSQL_ROOT_PASSWORD
+              Value: password
+          MountPoints:
+            - ContainerPath: /var/lib/mysql
+              SourceVolume: my-efs
+          PortMappings:
+            - HostPort: 3306
+              ContainerPort: 3306
+      Volumes:
+        - Host:
+            SourcePath: /mnt/efs/mysql
+          Name: my-efs
+  ContainerInstanceAutoScalingGroup:
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT15M
+    UpdatePolicy:
+      AutoScalingRollingUpdate:
+        MinInstancesInService: 1
+        MaxBatchSize: 1
+        PauseTime: PT15M
+        WaitOnResourceSignals: true
+    DependsOn:
+      - MountTarget1
+      - MountTarget2
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier: !Ref SubnetIds
+      LaunchConfigurationName: !Ref ContainerInstanceLaunchConfiguration
+      MinSize: 1
+      MaxSize: 1
+      DesiredCapacity: 1
+
+  ContainerInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+              - ec2.amazonaws.com
+          Action:
+            - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role
+  ContainerInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+        - !Ref ContainerInstanceRole
+  ContainerInstanceLaunchConfiguration:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ImageId: ami-57d9cd2e
+      InstanceType: t2.micro
+      IamInstanceProfile: !Ref ContainerInstanceProfile
+      KeyName: !Ref KeyName
+      AssociatePublicIpAddress: true
+      SecurityGroups:
+        - !Ref ContainerInstanceSecurityGroup
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          echo ECS_CLUSTER=${Cluster} >> /etc/ecs/ecs.config
+          yum install -y aws-cfn-bootstrap
+          /opt/aws/bin/cfn-init --stack ${AWS::StackName} --resource ContainerInstanceLaunchConfiguration --configsets Install --region ${AWS::Region}
+          PATH=$PATH:/usr/local/bin
+          yum update -y
+          EC2_AVAIL_ZONE=$(curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone)
+          EC2_REGION=${AWS::Region}
+          mkdir /mnt/efs
+          EFS_FILE_SYSTEM_ID=${FileSystem}
+          DIR_SRC=$EC2_AVAIL_ZONE.$EFS_FILE_SYSTEM_ID.efs.$EC2_REGION.amazonaws.com
+          DIR_TGT=/mnt/efs
+          touch /home/ec2-user/echo.res
+          echo $EFS_FILE_SYSTEM_ID >> /home/ec2-user/echo.res
+          echo $EC2_AVAIL_ZONE >> /home/ec2-user/echo.res
+          echo $EC2_REGION >> /home/ec2-user/echo.res
+          echo $DIR_SRC >> /home/ec2-user/echo.res
+          echo $DIR_TGT >> /home/ec2-user/echo.res
+          mount -t nfs4 $DIR_SRC:/ $DIR_TGT >> /home/ec2-user/echo.res
+          cp -p /etc/fstab /etc/fstab.back-$(date +%F)
+          echo -e "$DIR_SRC:/ \t\t $DIR_TGT \t\t nfs \t\t defaults \t\t 0 \t\t 0" | tee -a /etc/fstab
+          docker ps
+          service docker stop
+          service docker start
+          /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource ContainerInstanceAutoScalingGroup --region ${AWS::Region}
+    Metadata:
+      AWS::CloudFormation::Init:
+        configSets:
+          Install:
+            - Install
+        Install:
+          packages:
+            yum:
+              nfs-utils: []
+              python27: []
+          files:
+            /etc/cfn/cfn-hup.conf:
+              content: !Sub |
+                [main]
+                stack=${AWS::StackId}
+                region=${AWS::Region}
+              mode: "000400"
+              owner: root
+              group: root
+            /etc/cfn/hooks.d/cfn-auto-reloader.conf:
+              content: !Sub |
+                [cfn-auto-reloader-hook]
+                triggers=post.update
+                path=Resources.ContainerInstanceLaunchConfiguration.Metadata.AWS::CloudFormation::Init
+                action=/opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource ContainerInstanceLaunchConfiguration --region ${AWS::Region}
+                runas=root
+          services:
+            sysvinit:
+              cfn-hup:
+                enabled: true
+                ensureRunning: true
+                files:
+                  - /etc/cfn/cfn-hup.conf
+                  - /etc/cfn/hooks.d/cfn-auto-reloader.conf
+
+Outputs:
+  ELBDNSName:
+    Value: !GetAtt ELB.DNSName
