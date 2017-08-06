@@ -1,0 +1,122 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: Test Stack
+
+Parameters:
+  ApiGatewayStageName:
+    Type: String
+    Default: v1
+
+Resources:
+  Bucket:
+    Type: AWS::S3::Bucket
+
+  KinesisFirehoseRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+              - firehose.amazonaws.com
+          Action:
+            - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+        - arn:aws:iam::aws:policy/CloudWatchLogsFullAccess
+
+  KinesisFirehoseLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub kinesis-firehose-${AWS::StackName}
+
+  KinesisFirehoseLogStream:
+    Type: AWS::Logs::LogStream
+    Properties:
+      LogGroupName: !Ref KinesisFirehoseLogGroup
+      LogStreamName: !Sub /aws/kinesis/${AWS::StackName}
+
+  KinesisFirehose:
+    Type: AWS::KinesisFirehose::DeliveryStream
+    Properties:
+      S3DestinationConfiguration:
+        RoleARN: !GetAtt KinesisFirehoseRole.Arn
+        BucketARN: !GetAtt Bucket.Arn
+        BufferingHints:
+          IntervalInSeconds: 60
+          SizeInMBs: 1
+        CloudWatchLoggingOptions:
+          Enabled: true
+          LogStreamName: !Ref KinesisFirehoseLogStream
+          LogGroupName: !Ref KinesisFirehoseLogGroup
+        CompressionFormat: UNCOMPRESSED
+        Prefix: test-prefix
+
+  ApigatewayRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: apigateway.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonKinesisFirehoseFullAccess
+
+  ApiGatewayRestApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: KinesisFirehoseAPI
+
+  ApiGatewayResourcePutRecord:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !GetAtt ApiGatewayRestApi.RootResourceId
+      PathPart: firehose
+      RestApiId: !Ref ApiGatewayRestApi
+
+  ApiGatewayMethodPutRecordPost:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      HttpMethod: POST
+      AuthorizationType: NONE
+      ResourceId: !Ref ApiGatewayResourcePutRecord
+      RestApiId: !Ref ApiGatewayRestApi
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS
+        Credentials: !GetAtt ApigatewayRole.Arn
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:firehose:action/PutRecord
+        PassthroughBehavior: WHEN_NO_TEMPLATES
+        RequestTemplates:
+          application/json: !Sub |
+            {
+              "DeliveryStreamName": "${KinesisFirehose}",
+              "Record": {
+                "Data": "$util.base64Encode($input.json('$.Data'))"
+              }
+            }
+        IntegrationResponses:
+          - StatusCode: 200
+            SelectionPattern: 200
+            ResponseParameters: {}
+            ResponseTemplates: {}
+      MethodResponses:
+        - ResponseParameters: {}
+          ResponseModels: {}
+          StatusCode: 200
+  __ApiGatewayDeployment__:
+    DependsOn:
+      - ApiGatewayMethodPutRecordPost
+    Type: AWS::ApiGateway::Deployment
+    Properties:
+      RestApiId: !Ref ApiGatewayRestApi
+      StageName: !Ref ApiGatewayStageName
+
+Outputs:
+  ApiGatewayEndpoint:
+    Value: !Sub https://${ApiGatewayRestApi}.execute-api.${AWS::Region}.amazonaws.com/${ApiGatewayStageName}
