@@ -1,0 +1,9 @@
+FROM python:3.6.2-alpine3.6
+
+WORKDIR /python
+RUN pip install boto3
+COPY data.py .
+
+ENV AWS_DEFAULT_REGION=us-west-2
+
+ENTRYPOINT ["python", "data.py"]

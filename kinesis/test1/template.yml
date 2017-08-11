@@ -1,0 +1,224 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: Kinesis Stack
+
+Parameters:
+  MyIpAddress:
+    Type: String
+
+Resources:
+  KinesisStream:
+    Type: AWS::Kinesis::Stream
+    Properties:
+      ShardCount: 1
+
+  ElasticsearchDomain:
+    Type: AWS::Elasticsearch::Domain
+    Properties:
+      ElasticsearchVersion: 5.3
+      ElasticsearchClusterConfig:
+        InstanceCount: 2
+        ZoneAwarenessEnabled: true
+        DedicatedMasterEnabled: false
+        InstanceType: t2.small.elasticsearch
+      EBSOptions:
+        EBSEnabled: true
+        VolumeSize: 10
+        VolumeType: gp2
+      AccessPolicies:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !GetAtt KinesisFirehoseRole.Arn
+            Action:
+              - es:*
+            Resource: !Sub arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/*/*
+          - Effect: Allow
+            Principal:
+              AWS: "*"
+            Action:
+              - es:*
+            Condition:
+              IpAddress:
+                aws:SourceIp:
+                  - !Ref MyIpAddress
+            Resource: !Sub arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/*/*
+      AdvancedOptions:
+        rest.action.multi.allow_explicit_index: true
+
+  Bucket:
+    Type: AWS::S3::Bucket
+
+  KinesisFirehoseRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+              - firehose.amazonaws.com
+          Action:
+            - sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: !Sub kinesis-firehose-policy-${AWS::StackName}
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - kms:Decrypt
+                  - kms:GenerateDataKey
+                Resource: !Sub arn:aws:kms:${AWS::Region}:${AWS::AccountId}:key/*
+              - Effect: Allow
+                Action:
+                  - es:*
+                Resource: !Sub arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/*/*
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+        - arn:aws:iam::aws:policy/CloudWatchLogsFullAccess
+
+  KinesisFirehoseS3LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/firehose/kinesis-firehose-s3-${AWS::StackName}
+
+  KinesisFirehoseS3LogStream:
+    Type: AWS::Logs::LogStream
+    Properties:
+      LogGroupName: !Ref KinesisFirehoseS3LogGroup
+      LogStreamName: !Sub s3-${AWS::StackName}
+
+  KinesisFirehoseESLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/firehose/kinesis-firehose-es-${AWS::StackName}
+
+  KinesisFirehoseESLogStream:
+    Type: AWS::Logs::LogStream
+    Properties:
+      LogGroupName: !Ref KinesisFirehoseESLogGroup
+      LogStreamName: !Sub es-${AWS::StackName}
+
+  KinesisFirehose:
+    Type: AWS::KinesisFirehose::DeliveryStream
+    Properties:
+      ElasticsearchDestinationConfiguration:
+        BufferingHints:
+          IntervalInSeconds: 60
+          SizeInMBs: 1
+        CloudWatchLoggingOptions:
+          Enabled: true
+          LogGroupName: !Ref KinesisFirehoseESLogGroup
+          LogStreamName: !Ref KinesisFirehoseESLogStream
+        DomainARN: !GetAtt ElasticsearchDomain.DomainArn
+        IndexName: anomalydata
+        IndexRotationPeriod: NoRotation
+        TypeName: sensortype
+        RetryOptions:
+          DurationInSeconds: 300
+        RoleARN: !GetAtt KinesisFirehoseRole.Arn
+        S3BackupMode: FailedDocumentsOnly
+        S3Configuration:
+          BucketARN: !GetAtt Bucket.Arn
+          BufferingHints:
+            IntervalInSeconds: 60
+            SizeInMBs: 50
+          CompressionFormat: UNCOMPRESSED
+          Prefix: firehose/
+          RoleARN: !GetAtt KinesisFirehoseRole.Arn
+          CloudWatchLoggingOptions:
+            Enabled: true
+            LogGroupName: !Ref KinesisFirehoseS3LogGroup
+            LogStreamName: !Ref KinesisFirehoseS3LogStream
+
+  KinesisAnalyticsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: kinesisanalytics.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: !Sub kinesis-analytics-policy-${AWS::StackName}
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - kinesis:DescribeStream
+                  - kinesis:GetShardIterator
+                  - kinesis:GetRecords
+                Resource: !GetAtt KinesisStream.Arn
+              - Effect: Allow
+                Action:
+                  - firehose:DescribeDeliveryStream
+                  - firehose:PutRecord
+                  - firehose:PutRecordBatch
+                Resource: !Sub arn:aws:firehose:${AWS::Region}:${AWS::AccountId}:deliverystream/${KinesisFirehose}
+
+  KinesisAnalyticsApplication:
+    Type: AWS::KinesisAnalytics::Application
+    Properties:
+      Inputs:
+        - NamePrefix: SOURCE_SQL_STREAM
+          InputSchema:
+            RecordColumns:
+              - Name: iotName
+                SqlType: VARCHAR(40)
+                Mapping: $.iotName
+              - Name: iotValue
+                SqlType: INTEGER
+                Mapping: $.iotValue
+            RecordEncoding: UTF-8
+            RecordFormat:
+              RecordFormatType: JSON
+              MappingParameters:
+                JSONMappingParameters:
+                  RecordRowPath: $
+          KinesisStreamsInput:
+            ResourceARN: !GetAtt KinesisStream.Arn
+            RoleARN: !GetAtt KinesisAnalyticsRole.Arn
+      ApplicationCode: |
+        CREATE OR REPLACE STREAM "TEMP_STREAM" (
+           "iotName"       varchar (40),
+           "iotValue"      integer,
+           "ANOMALY_SCORE" DOUBLE);
+        -- Creates an output stream and defines a schema
+        CREATE OR REPLACE STREAM "DESTINATION_SQL_STREAM" (
+           "iotName"       varchar(40),
+           "iotValue"      integer,
+           "ANOMALY_SCORE" DOUBLE,
+           "created"       TimeStamp);
+
+        -- Compute an anomaly score for each record in the source stream
+        -- using Random Cut Forest
+        CREATE OR REPLACE PUMP "STREAM_PUMP_1" AS INSERT INTO "TEMP_STREAM"
+        SELECT STREAM "iotName", "iotValue", ANOMALY_SCORE FROM
+          TABLE(RANDOM_CUT_FOREST(
+            CURSOR(SELECT STREAM * FROM "SOURCE_SQL_STREAM_001")
+          )
+        );
+
+        -- Sort records by descending anomaly score, insert into output stream
+        CREATE OR REPLACE PUMP "OUTPUT_PUMP" AS INSERT INTO "DESTINATION_SQL_STREAM"
+        SELECT STREAM "iotName", "iotValue", ANOMALY_SCORE, ROWTIME FROM "TEMP_STREAM"
+        ORDER BY FLOOR("TEMP_STREAM".ROWTIME TO SECOND), ANOMALY_SCORE DESC;
+
+  KinesisAnalyticsApplicationOutput:
+    Type: AWS::KinesisAnalytics::ApplicationOutput
+    Properties:
+      ApplicationName: !Ref KinesisAnalyticsApplication
+      Output:
+        Name: DESTINATION_SQL_STREAM
+        DestinationSchema:
+          RecordFormatType: JSON
+        KinesisStreamsOutput:
+          ResourceARN: !Sub arn:aws:firehose:${AWS::Region}:${AWS::AccountId}:deliverystream/${KinesisFirehose}
+          RoleARN: !GetAtt KinesisAnalyticsRole.Arn
