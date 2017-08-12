@@ -1,0 +1,215 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: VPC flow log Stack
+
+Parameters:
+  VpcCidrBlock:
+    Type: String
+    Default: 192.168.0.0/16
+  FrontendSubnet1CidrBlock:
+    Type: String
+    Default: 192.168.0.0/24
+  FrontendSubnet2CidrBlock:
+    Type: String
+    Default: 192.168.1.0/24
+  ApplicationSubnet1CidrBlock:
+    Type: String
+    Default: 192.168.100.0/24
+  ApplicationSubnet2CidrBlock:
+    Type: String
+    Default: 192.168.101.0/24
+  DatastoreSubnet1CidrBlock:
+    Type: String
+    Default: 192.168.200.0/24
+  DatastoreSubnet2CidrBlock:
+    Type: String
+    Default: 192.168.201.0/24
+
+Resources:
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidrBlock
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      InstanceTenancy: default
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+
+  FrontendRouteTable:
+    Type: AWS::EC2::RouteTable
+    DependsOn: AttachGateway
+    Properties:
+      VpcId: !Ref Vpc
+
+  FrontendRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref FrontendRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  ApplicationRouteTable:
+    Type: AWS::EC2::RouteTable
+    DependsOn: AttachGateway
+    Properties:
+      VpcId: !Ref Vpc
+
+  ApplicationRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref ApplicationRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  DatastoreRouteTable:
+    Type: AWS::EC2::RouteTable
+    DependsOn: AttachGateway
+    Properties:
+      VpcId: !Ref Vpc
+
+  FrontendSubnet1:
+    Type: AWS::EC2::Subnet
+    DependsOn: AttachGateway
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select
+          - 0
+          - Fn::GetAZs: !Ref AWS::Region
+      CidrBlock: !Ref FrontendSubnet1CidrBlock
+
+  FrontendSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref FrontendSubnet1
+      RouteTableId: !Ref FrontendRouteTable
+
+  FrontendSubnet2:
+    Type: AWS::EC2::Subnet
+    DependsOn: AttachGateway
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select
+          - 1
+          - Fn::GetAZs: !Ref AWS::Region
+      CidrBlock: !Ref FrontendSubnet2CidrBlock
+
+  FrontendSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref FrontendSubnet2
+      RouteTableId: !Ref FrontendRouteTable
+
+  ApplicationSubnet1:
+    Type: AWS::EC2::Subnet
+    DependsOn: AttachGateway
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select
+          - 0
+          - Fn::GetAZs: !Ref AWS::Region
+      CidrBlock: !Ref ApplicationSubnet1CidrBlock
+
+  ApplicationSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref FrontendSubnet1
+      RouteTableId: !Ref FrontendRouteTable
+
+  ApplicationSubnet2:
+    Type: AWS::EC2::Subnet
+    DependsOn: AttachGateway
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select
+          - 1
+          - Fn::GetAZs: !Ref AWS::Region
+      CidrBlock: !Ref ApplicationSubnet2CidrBlock
+
+  ApplicationSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref ApplicationSubnet2
+      RouteTableId: !Ref ApplicationRouteTable
+
+  DatastoreSubnet1:
+    Type: AWS::EC2::Subnet
+    DependsOn: AttachGateway
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select
+          - 0
+          - Fn::GetAZs: !Ref AWS::Region
+      CidrBlock: !Ref DatastoreSubnet1CidrBlock
+
+  DatastoreSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref DatastoreSubnet1
+      RouteTableId: !Ref DatastoreRouteTable
+
+  DatastoreSubnet2:
+    Type: AWS::EC2::Subnet
+    DependsOn: AttachGateway
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select
+          - 1
+          - Fn::GetAZs: !Ref AWS::Region
+      CidrBlock: !Ref DatastoreSubnet2CidrBlock
+
+  DatastoreSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref DatastoreSubnet2
+      RouteTableId: !Ref DatastoreRouteTable
+
+  VpcFlowLogRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - vpc-flow-logs.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: !Sub ${AWS::StackName}-vpc-flow-log-policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:DescribeLogGroups
+                  - logs:DescribeLogStreams
+                  - logs:PutLogEvents
+                Resource: "*"
+
+  VpcFlowLogLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/vpc-flow-log/${AWS::StackName}
+
+  VpcFlowLog:
+    Type: AWS::EC2::FlowLog
+    Properties:
+      LogGroupName: !Ref VpcFlowLogLogGroup
+      ResourceId: !Ref Vpc
+      ResourceType: VPC
+      TrafficType: ALL
+      DeliverLogsPermissionArn: !GetAtt VpcFlowLogRole.Arn
