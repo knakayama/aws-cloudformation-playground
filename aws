@@ -1,21 +1,20 @@
 #!/usr/bin/env bash
 
 image_name="awscli"
-build_flag=true
+build_flag=false
 
-while getopts ':n' args; do
+while getopts ':b' args; do
   case "$args" in
-    n)
-      build_flag=false
+    b)
+      build_flag=true
       ;;
   esac
 done
 
-shift
-
 if [[ "$build_flag" == true ]]; then
   docker image build \
     --tag "$image_name" "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  shift
 fi
 
 docker container run \
