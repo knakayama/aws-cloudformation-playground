@@ -3,6 +3,9 @@ AWSTemplateFormatVersion: 2010-09-09
 Description: VPC flow log Stack
 
 Parameters:
+  TagSuffix:
+    Type: String
+    Default: vpc-flow-log
   VpcCidrBlock:
     Type: String
     Default: 192.168.0.0/16
@@ -33,6 +36,9 @@ Resources:
       EnableDnsSupport: true
       EnableDnsHostnames: true
       InstanceTenancy: default
+      Tags:
+        - Key: Name
+          Value: !Sub vpc-${TagSuffix}
 
   InternetGateway:
     Type: AWS::EC2::InternetGateway
@@ -48,6 +54,9 @@ Resources:
     DependsOn: AttachGateway
     Properties:
       VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub frontend-subnet-rtb-${TagSuffix}
 
   FrontendRoute:
     Type: AWS::EC2::Route
@@ -62,6 +71,9 @@ Resources:
     DependsOn: AttachGateway
     Properties:
       VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub application-subnet-rtb-${TagSuffix}
 
   ApplicationRoute:
     Type: AWS::EC2::Route
@@ -76,6 +88,9 @@ Resources:
     DependsOn: AttachGateway
     Properties:
       VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub datastore-subnet-rtb-${TagSuffix}
 
   FrontendSubnet1:
     Type: AWS::EC2::Subnet
@@ -86,6 +101,9 @@ Resources:
           - 0
           - Fn::GetAZs: !Ref AWS::Region
       CidrBlock: !Ref FrontendSubnet1CidrBlock
+      Tags:
+        - Key: Name
+          Value: !Sub frontend-subnet-1-${TagSuffix}
 
   FrontendSubnet1RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
@@ -102,6 +120,9 @@ Resources:
           - 1
           - Fn::GetAZs: !Ref AWS::Region
       CidrBlock: !Ref FrontendSubnet2CidrBlock
+      Tags:
+        - Key: Name
+          Value: !Sub frontend-subnet-2-${TagSuffix}
 
   FrontendSubnet2RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
@@ -118,12 +139,15 @@ Resources:
           - 0
           - Fn::GetAZs: !Ref AWS::Region
       CidrBlock: !Ref ApplicationSubnet1CidrBlock
+      Tags:
+        - Key: Name
+          Value: !Sub application-subnet-1-${TagSuffix}
 
   ApplicationSubnet1RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      SubnetId: !Ref FrontendSubnet1
-      RouteTableId: !Ref FrontendRouteTable
+      SubnetId: !Ref ApplicationSubnet1
+      RouteTableId: !Ref ApplicationRouteTable
 
   ApplicationSubnet2:
     Type: AWS::EC2::Subnet
@@ -134,6 +158,9 @@ Resources:
           - 1
           - Fn::GetAZs: !Ref AWS::Region
       CidrBlock: !Ref ApplicationSubnet2CidrBlock
+      Tags:
+        - Key: Name
+          Value: !Sub application-subnet-2-${TagSuffix}
 
   ApplicationSubnet2RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
@@ -150,6 +177,9 @@ Resources:
           - 0
           - Fn::GetAZs: !Ref AWS::Region
       CidrBlock: !Ref DatastoreSubnet1CidrBlock
+      Tags:
+        - Key: Name
+          Value: !Sub datastore-subnet-1-${TagSuffix}
 
   DatastoreSubnet1RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
@@ -166,6 +196,9 @@ Resources:
           - 1
           - Fn::GetAZs: !Ref AWS::Region
       CidrBlock: !Ref DatastoreSubnet2CidrBlock
+      Tags:
+        - Key: Name
+          Value: !Sub datastore-subnet-2-${TagSuffix}
 
   DatastoreSubnet2RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
@@ -187,7 +220,7 @@ Resources:
               - sts:AssumeRole
       Path: /
       Policies:
-        - PolicyName: !Sub ${AWS::StackName}-vpc-flow-log-policy
+        - PolicyName: !Sub vpc-flow-log-policy-${AWS::StackName}
           PolicyDocument:
             Version: 2012-10-17
             Statement:
