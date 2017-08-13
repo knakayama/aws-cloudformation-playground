@@ -1,0 +1,201 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Transform: AWS::Serverless-2016-10-31
+Description: Kinesis Firehose to ElasticSearch Stack
+
+Parameters:
+  SubscriptionFilterLogGroupName:
+    Type: String
+  MyIpAddress:
+    Type: String
+
+Resources:
+  Bucket:
+    Type: AWS::S3::Bucket
+
+  KinesisFirehoseRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+              - firehose.amazonaws.com
+          Action:
+            - sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: !Sub kinesis-firehose-policy-${AWS::StackName}
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - kms:Decrypt
+                  - kms:GenerateDataKey
+                Resource: !Sub arn:aws:kms:${AWS::Region}:${AWS::AccountId}:key/*
+              - Effect: Allow
+                Action:
+                  - es:*
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                  - lambda:GetFunctionConfiguration
+                Resource: "*"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+        - arn:aws:iam::aws:policy/CloudWatchLogsFullAccess
+
+  KinesisFirehoseLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /${AWS::StackName}/kinesis-firehose
+
+  KinesisFirehoseS3LogStream:
+    Type: AWS::Logs::LogStream
+    Properties:
+      LogGroupName: !Ref KinesisFirehoseLogGroup
+      LogStreamName: kinesis-firehose-s3
+
+  KinesisFirehoseESLogStream:
+    Type: AWS::Logs::LogStream
+    Properties:
+      LogGroupName: !Ref KinesisFirehoseLogGroup
+      LogStreamName: kinesis-firehose-es
+
+  ElasticsearchDomain:
+    Type: AWS::Elasticsearch::Domain
+    Properties:
+      ElasticsearchVersion: 5.3
+      ElasticsearchClusterConfig:
+        InstanceCount: 2
+        ZoneAwarenessEnabled: true
+        DedicatedMasterEnabled: false
+        InstanceType: t2.small.elasticsearch
+      EBSOptions:
+        EBSEnabled: true
+        VolumeSize: 10
+        VolumeType: gp2
+      AccessPolicies:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !GetAtt KinesisFirehoseRole.Arn
+            Action:
+              - es:*
+            Resource: !Sub arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/*/*
+          - Effect: Allow
+            Principal:
+              AWS: "*"
+            Action:
+              - es:*
+            Condition:
+              IpAddress:
+                aws:SourceIp:
+                  - !Ref MyIpAddress
+            Resource: !Sub arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/*/*
+      AdvancedOptions:
+        rest.action.multi.allow_explicit_index: true
+
+  KinesisFirehose:
+    Type: AWS::KinesisFirehose::DeliveryStream
+    Properties:
+      ElasticsearchDestinationConfiguration:
+        BufferingHints:
+          IntervalInSeconds: 60
+          SizeInMBs: 1
+        CloudWatchLoggingOptions:
+          Enabled: true
+          LogGroupName: !Ref KinesisFirehoseLogGroup
+          LogStreamName: !Ref KinesisFirehoseESLogStream
+        DomainARN: !GetAtt ElasticsearchDomain.DomainArn
+        IndexName: vpc-flow-logs
+        IndexRotationPeriod: OneDay
+        TypeName: vpc-flow-log
+        RetryOptions:
+          DurationInSeconds: 300
+        RoleARN: !GetAtt KinesisFirehoseRole.Arn
+        S3BackupMode: FailedDocumentsOnly
+        S3Configuration:
+          BucketARN: !GetAtt Bucket.Arn
+          BufferingHints:
+            IntervalInSeconds: 60
+            SizeInMBs: 50
+          CompressionFormat: UNCOMPRESSED
+          Prefix: !Sub ${AWS::StackName}-s3/
+          RoleARN: !GetAtt KinesisFirehoseRole.Arn
+          CloudWatchLoggingOptions:
+            Enabled: true
+            LogGroupName: !Ref KinesisFirehoseLogGroup
+            LogStreamName: !Ref KinesisFirehoseS3LogStream
+
+  IngestorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/AmazonKinesisFirehoseFullAccess
+
+  Ingestor:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/handlers/ingestor
+      Handler: index.handler
+      Runtime: nodejs6.10
+      Role: !GetAtt IngestorRole.Arn
+      Environment:
+        Variables:
+          DELIVERY_STREAM_NAME: !Ref KinesisFirehose
+
+  DecoratorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/AmazonKinesisFirehoseFullAccess
+        - arn:aws:iam::aws:policy/AmazonEC2ReadOnlyAccess
+
+  Decorator:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/handlers/decorator
+      Handler: index.handler
+      Runtime: nodejs6.10
+      Role: !GetAtt DecoratorRole.Arn
+      Timeout: 60
+
+  SubscriptionFilterPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt Ingestor.Arn
+      Action: lambda:InvokeFunction
+      Principal: !Sub logs.${AWS::Region}.amazonaws.com
+      SourceArn: !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:${SubscriptionFilterLogGroupName}:*
+
+  SubscriptionFilter:
+    DependsOn: SubscriptionFilterPermission
+    Type: AWS::Logs::SubscriptionFilter
+    Properties:
+      LogGroupName: !Ref SubscriptionFilterLogGroupName
+      FilterPattern: |
+        [version, account, eni, source!=192.168.*.*, destination, srcport, destport, protocol, packets, bytes, windowstart, windowend, action, flowlogstatus]
+      DestinationArn: !GetAtt Ingestor.Arn
