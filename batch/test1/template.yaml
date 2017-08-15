@@ -1,0 +1,102 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: Batch Sample Stack
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  BatchComputeEnvironmentSubnetdIds:
+    Type: List<AWS::EC2::Subnet::Id>
+  MyIpAddress:
+    Type: String
+
+Resources:
+  BatchServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: batch.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSBatchServiceRole
+
+  EcsInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2008-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role
+
+  EcsIamInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref EcsInstanceRole
+
+  BatchJobDefinition:
+    Type: AWS::Batch::JobDefinition
+    Properties:
+      Type: container
+      ContainerProperties:
+        Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/amazonlinux:latest
+        Vcpus: 2
+        Memory: 2000
+        Command:
+          - echo
+          - '''hello world'''
+      RetryStrategy:
+        Attempts: 1
+
+  BatchComputeEnvironmentSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Ref AWS::StackName
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref MyIpAddress
+
+  BatchComputeEnvironment:
+    Type: AWS::Batch::ComputeEnvironment
+    Properties:
+      Type: MANAGED
+      ServiceRole: !Ref BatchServiceRole
+      ComputeResources:
+        Type: EC2
+        MinvCpus: 0
+        DesiredvCpus: 0
+        MaxvCpus: 64
+        InstanceTypes:
+          - optimal
+        Subnets: !Ref BatchComputeEnvironmentSubnetdIds
+        SecurityGroupIds:
+          - !Ref BatchComputeEnvironmentSecurityGroup
+        InstanceRole: !Ref EcsIamInstanceProfile
+
+  BatchJobQueue:
+    Type: AWS::Batch::JobQueue
+    Properties:
+      Priority: 1
+      ComputeEnvironmentOrder:
+        - Order: 1
+          ComputeEnvironment: !Ref BatchComputeEnvironment
+
+Outputs:
+  BatchComputeEnvironmentArn:
+    Value: !Ref BatchComputeEnvironment
+  BatchJobQueueArn:
+    Value: !Ref BatchJobQueue
+  BatchJobDefinition:
+    Value: !Ref BatchJobDefinition
