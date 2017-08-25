@@ -205,3 +205,37 @@ Resources:
     Properties:
       SubnetId: !Ref DatastoreSubnet2
       RouteTableId: !Ref DatastoreRouteTable
+
+Outputs:
+  VpcId:
+    Value: !Ref Vpc
+    Export:
+      Name: !Sub ${AWS::StackName}-VpcId
+  VpcCidrBlock:
+    Value: !GetAtt Vpc.CidrBlock
+    Export:
+      Name: !Sub ${AWS::StackName}-VpcCidrBlock
+  FrontendSubnet1Id:
+    Value: !Ref FrontendSubnet1
+    Export:
+      Name: !Sub ${AWS::StackName}-FrontendSubnet1Id
+  FrontendSubnet2Id:
+    Value: !Ref FrontendSubnet2
+    Export:
+      Name: !Sub ${AWS::StackName}-FrontendSubnet2Id
+  ApplicationSubnet1Id:
+    Value: !Ref ApplicationSubnet1
+    Export:
+      Name: !Sub ${AWS::StackName}-ApplicationSubnet1Id
+  ApplicationSubnet2Id:
+    Value: !Ref ApplicationSubnet2
+    Export:
+      Name: !Sub ${AWS::StackName}-ApplicationSubnet2Id
+  DatastoreSubnet1Id:
+    Value: !Ref DatastoreSubnet1
+    Export:
+      Name: !Sub ${AWS::StackName}-DatastoreSubnet1Id
+  DatastoreSubnet2Id:
+    Value: !Ref DatastoreSubnet2
+    Export:
+      Name: !Sub ${AWS::StackName}-DatastoreSubnet2Id
