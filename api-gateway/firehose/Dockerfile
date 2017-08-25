@@ -6,7 +6,7 @@ RUN pip install -r requirements.txt
 COPY *.yml .
 RUN sed -i "s/__\(ApiGatewayDeployment\)__/\\1$(date '+%s')/" template.yml
 
-ENV AWS_DEFAULT_REGION=us-west-2
+ENV AWS_DEFAULT_REGION=ap-northeast-1
 
 ENTRYPOINT ["aws"]
 CMD ["--version"]
