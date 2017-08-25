@@ -1,0 +1,74 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: DAX Sample Stack
+
+Parameters:
+  NetworkStackName:
+    Type: String
+    Default: network-simple
+
+Resources:
+  DaxSubnetGroup:
+    Type: AWS::DAX::SubnetGroup
+    Properties:
+      SubnetGroupName: my-dax-subnet-group
+      Description: !Ref AWS::StackName
+      SubnetIds:
+        - Fn::ImportValue: !Sub ${NetworkStackName}-DatastoreSubnet1Id
+        - Fn::ImportValue: !Sub ${NetworkStackName}-DatastoreSubnet2Id
+
+  DaxParameterGroup:
+    Type: AWS::DAX::ParameterGroup
+    Properties:
+      ParameterGroupName: my-dax-pg
+      ParameterNameValues:
+        query-ttl-millis: 75000
+        record-ttl-millis: 88000
+
+  DaxClusterRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+              - dax.amazonaws.com
+          Action:
+            - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess
+
+  DaxSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Ref AWS::StackName
+      VpcId:
+        Fn::ImportValue: !Sub ${NetworkStackName}-VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8111
+          ToPort: 8111
+          CidrIp:
+            Fn::ImportValue: !Sub ${NetworkStackName}-VpcCidrBlock
+
+  DaxCluster:
+    Type: AWS::DAX::Cluster
+    Properties:
+      ClusterName: my-dax-cluster
+      Description: !Ref AWS::StackName
+      NodeType: dax.r3.large
+      ReplicationFactor: 1
+      IAMRoleARN: !GetAtt DaxClusterRole.Arn
+      SubnetGroupName: !Ref DaxSubnetGroup
+      ParameterGroupName: !Ref DaxParameterGroup
+      SecurityGroupIds:
+        - !Ref DaxSecurityGroup
+      PreferredMaintenanceWindow: fri:15:30-fri:16:30
+      Tags:
+        Name: my-dax-cluster
+
+Outputs:
+  Cluster:
+    Value: !Ref DaxCluster
