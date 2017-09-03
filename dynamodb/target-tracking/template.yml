@@ -1,0 +1,358 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: DynamoDB Target Tracking Stack
+
+Resources:
+  DynamoDbTableCbInfo:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: accountCbAlias
+          AttributeType: S
+      KeySchema:
+        - AttributeName: accountCbAlias
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+
+  DynamoDbTableAccountInfo:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: accountEmailAddress
+          AttributeType: S
+        - AttributeName: requestId
+          AttributeType: S
+        - AttributeName: accountId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: accountEmailAddress
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+      GlobalSecondaryIndexes:
+        - IndexName: gsiRequestId
+          KeySchema:
+            - AttributeName: requestId
+              KeyType: HASH
+          Projection:
+            ProjectionType: KEYS_ONLY
+          ProvisionedThroughput:
+            ReadCapacityUnits: 1
+            WriteCapacityUnits: 1
+        - IndexName: gsiAccountId
+          KeySchema:
+            - AttributeName: accountId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+          ProvisionedThroughput:
+            ReadCapacityUnits: 1
+            WriteCapacityUnits: 1
+
+  DynamoDbTableTaskStatus:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: requestId
+          AttributeType: S
+        - AttributeName: eventTimestamp
+          AttributeType: S
+      KeySchema:
+        - AttributeName: requestId
+          KeyType: HASH
+        - AttributeName: eventTimestamp
+          KeyType: RANGE
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+
+  DynamoDbTableNipapCfn:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: nipapAlias
+          AttributeType: S
+      KeySchema:
+        - AttributeName: nipapAlias
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+
+  DynamoDbTableOps:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: layer
+          AttributeType: S
+      KeySchema:
+        - AttributeName: layer
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+
+  DynamoDbTableDxInterface:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: divisionDcRegion
+          AttributeType: S
+        - AttributeName: vlan
+          AttributeType: S
+      KeySchema:
+        - AttributeName: divisionDcRegion
+          KeyType: HASH
+        - AttributeName: vlan
+          KeyType: RANGE
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+
+  DynamoDbTableClaStatus:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: requestId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: requestId
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+
+  DynamoDbTableConfigRulesCompliance:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: accountId
+          AttributeType: S
+        - AttributeName: pollTimestamp
+          AttributeType: S
+      KeySchema:
+        - AttributeName: accountId
+          KeyType: HASH
+        - AttributeName: pollTimestamp
+          KeyType: RANGE
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+
+  DynamoDbAutoScalingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - application-autoscaling.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: dynamodbAutoscaling
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:DescribeTable
+                  - dynamodb:UpdateTable
+                  - cloudwatch:PutMetricAlarm
+                  - cloudwatch:DescribeAlarms
+                  - cloudwatch:GetMetricStatistics
+                  - cloudwatch:SetAlarmState
+                  - cloudwatch:DeleteAlarms
+                Resource: "*"
+
+  AutoScaleTargetTableAccountInfoTableReadCapacity:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 10
+      MinCapacity: 1
+      ResourceId: !Sub table/${DynamoDbTableAccountInfo}
+      RoleARN: !GetAtt DynamoDbAutoScalingRole.Arn
+      ScalableDimension: dynamodb:table:ReadCapacityUnits
+      ServiceNamespace: dynamodb
+
+  AutoScaleTargetTableAccountInfoTableWriteCapacity:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 10
+      MinCapacity: 1
+      ResourceId: !Sub table/${DynamoDbTableAccountInfo}
+      RoleARN: !GetAtt DynamoDbAutoScalingRole.Arn
+      ScalableDimension: dynamodb:table:WriteCapacityUnits
+      ServiceNamespace: dynamodb
+
+  AutoScaleTargetTableAccountInfoIndexGsiRequestIdReadCapacity:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 10
+      MinCapacity: 1
+      ResourceId: !Sub table/${DynamoDbTableAccountInfo}/index/gsiRequestId
+      RoleARN: !GetAtt DynamoDbAutoScalingRole.Arn
+      ScalableDimension: dynamodb:index:ReadCapacityUnits
+      ServiceNamespace: dynamodb
+
+  AutoScaleTargetTableAccountInfoIndexGsiRequestIdWriteCapacity:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 10
+      MinCapacity: 1
+      ResourceId: !Sub table/${DynamoDbTableAccountInfo}/index/gsiRequestId
+      RoleARN: !GetAtt DynamoDbAutoScalingRole.Arn
+      ScalableDimension: dynamodb:index:WriteCapacityUnits
+      ServiceNamespace: dynamodb
+
+  AutoScaleTargetTableAccountInfoIndexGsiAccountIdReadCapacity:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 10
+      MinCapacity: 1
+      ResourceId: !Sub table/${DynamoDbTableAccountInfo}/index/gsiAccountId
+      RoleARN: !GetAtt DynamoDbAutoScalingRole.Arn
+      ScalableDimension: dynamodb:index:ReadCapacityUnits
+      ServiceNamespace: dynamodb
+
+  AutoScaleTargetTableAccountInfoIndexGsiAccountIdWriteCapacity:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 10
+      MinCapacity: 1
+      ResourceId: !Sub table/${DynamoDbTableAccountInfo}/index/gsiAccountId
+      RoleARN: !GetAtt DynamoDbAutoScalingRole.Arn
+      ScalableDimension: dynamodb:index:WriteCapacityUnits
+      ServiceNamespace: dynamodb
+
+  ScalingPolicyTableAccountInfoTableReadCapacity:
+    Type : AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: ReadAutoScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref AutoScaleTargetTableAccountInfoTableReadCapacity
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBReadCapacityUtilization
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+        TargetValue: 50.0
+
+  ScalingPolicyTableAccountInfoTableWriteCapacity:
+    Type : AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: WriteAutoScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref AutoScaleTargetTableAccountInfoTableWriteCapacity
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBWriteCapacityUtilization
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+        TargetValue: 50.0
+
+  ScalingPolicyTableAccountInfoGsiRequestIdWriteCapacity:
+    Type : AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: WriteAutoScalingPolicyGsiRequestId
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref AutoScaleTargetTableAccountInfoIndexGsiRequestIdWriteCapacity
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBWriteCapacityUtilization
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+        TargetValue: 50.0
+
+  ScalingPolicyTableAccountInfoGsiRequestIdReadCapacity:
+    Type : AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: ReadAutoScalingPolicyGsiRequestId
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref AutoScaleTargetTableAccountInfoIndexGsiRequestIdReadCapacity
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBReadCapacityUtilization
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+        TargetValue: 50.0
+
+  ScalingPolicyTableAccountInfoGsiAccountIdWriteCapacity:
+    Type : AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: WriteAutoScalingPolicyGsiAccountId
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref AutoScaleTargetTableAccountInfoIndexGsiAccountIdWriteCapacity
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBWriteCapacityUtilization
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+        TargetValue: 50.0
+
+  ScalingPolicyTableAccountInfoGsiAccountIdReadCapacity:
+    Type : AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: ReadAutoScalingPolicyGsiAccountId
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref AutoScaleTargetTableAccountInfoIndexGsiAccountIdReadCapacity
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBReadCapacityUtilization
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+        TargetValue: 50.0
+
+  AutoScaleTargetTableTaskStatusTableReadCapacity:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 10
+      MinCapacity: 1
+      ResourceId: !Sub table/${DynamoDbTableTaskStatus}
+      RoleARN: !GetAtt DynamoDbAutoScalingRole.Arn
+      ScalableDimension: dynamodb:table:ReadCapacityUnits
+      ServiceNamespace: dynamodb
+
+  AutoScaleTargetTableTaskStatusTableWriteCapacity:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 10
+      MinCapacity: 1
+      ResourceId: !Sub table/${DynamoDbTableTaskStatus}
+      RoleARN: !GetAtt DynamoDbAutoScalingRole.Arn
+      ScalableDimension: dynamodb:table:WriteCapacityUnits
+      ServiceNamespace: dynamodb
+
+  ScalingPolicyTableTaskStatusTableReadCapacity:
+    Type : AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: ReadAutoScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref AutoScaleTargetTableTaskStatusTableReadCapacity
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBReadCapacityUtilization
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+        TargetValue: 50.0
+
+  ScalingPolicyTableTaskStatusTableWriteCapacity:
+    Type : AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: WriteAutoScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref AutoScaleTargetTableTaskStatusTableWriteCapacity
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBWriteCapacityUtilization
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+        TargetValue: 50.0
