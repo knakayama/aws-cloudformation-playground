@@ -245,7 +245,7 @@ Resources:
         - Name: ClusterName
           Value: !Ref Cluster
       MetricName: CPUReservation
-      ComparisonOperator: GreaterThanThreshold
+      ComparisonOperator: GreaterThanOrEqualToThreshold
       Statistic: Average
       Period: 60
       EvaluationPeriods: 5
@@ -262,7 +262,7 @@ Resources:
         - Name: ClusterName
           Value: !Ref Cluster
       MetricName: MemoryReservation
-      ComparisonOperator: GreaterThanThreshold
+      ComparisonOperator: GreaterThanOrEqualToThreshold
       Statistic: Average
       Period: 60
       EvaluationPeriods: 5
@@ -279,7 +279,7 @@ Resources:
         - Name: ClusterName
           Value: !Ref Cluster
       MetricName: CPUReservation
-      ComparisonOperator: LessThanThreshold
+      ComparisonOperator: LessThanOrEqualToThreshold
       Statistic: Maximum
       Period: 60
       EvaluationPeriods: 60
@@ -296,7 +296,7 @@ Resources:
         - Name: ClusterName
           Value: !Ref Cluster
       MetricName: MemoryReservation
-      ComparisonOperator: LessThanThreshold
+      ComparisonOperator: LessThanOrEqualToThreshold
       Statistic: Maximum
       Period: 60
       EvaluationPeriods: 60
@@ -346,28 +346,15 @@ Resources:
             Service: application-autoscaling.amazonaws.com
           Action: sts:AssumeRole
       Path: /
-      Policies:
-        - PolicyName: !Sub ${AWS::StackName}-service-application-auto-scaling-policy
-          PolicyDocument:
-            Version: 2012-10-17
-            Statement:
-              - Effect: Allow
-                Action:
-                  - ecs:DescribeServices
-                  - ecs:UpdateService
-                  - cloudwatch:DescribeAlarms
-                Resource: "*"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceAutoscaleRole
 
   ServiceApplicationAutoScalingScalableTarget:
     Type: AWS::ApplicationAutoScaling::ScalableTarget
     Properties:
       MaxCapacity: 5
       MinCapacity: 1
-      ResourceId: !Sub service/${Cluster}${Service.Name}
-      ResourceId: !Sub
-        - service/${Cluster}/${Service}
-        - Cluster: !Ref Cluster
-          Service: !GetAtt Service.Name
+      ResourceId: !Join [ "/", [ service, !Ref Cluster, !GetAtt Service.Name ] ]
       RoleARN: !GetAtt ServiceApplicationAutoScalingRole.Arn
       ScalableDimension: ecs:service:DesiredCount
       ServiceNamespace: ecs
@@ -410,7 +397,7 @@ Resources:
         - Name: ServiceName
           Value: !GetAtt Service.Name
       MetricName: CPUUtilization
-      ComparisonOperator: GreaterThanThreshold
+      ComparisonOperator: GreaterThanOrEqualToThreshold
       Statistic: Average
       Period: 60
       EvaluationPeriods: 5
@@ -429,7 +416,7 @@ Resources:
         - Name: ServiceName
           Value: !GetAtt Service.Name
       MetricName: CPUUtilization
-      ComparisonOperator: LessThanThreshold
+      ComparisonOperator: LessThanOrEqualToThreshold
       Statistic: Maximum
       Period: 60
       EvaluationPeriods: 60
@@ -441,7 +428,7 @@ Resources:
     Type: AWS::Route53::RecordSet
     Properties:
       HostedZoneId: !Ref HostedZoneId
-      Name: !Sub api.${HostedZoneName}
+      Name: !Sub scaling.${HostedZoneName}
       Type: A
       AliasTarget:
         HostedZoneId: !GetAtt Alb.CanonicalHostedZoneID
