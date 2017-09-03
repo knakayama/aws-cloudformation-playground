@@ -347,6 +347,9 @@ Resources:
         - ContainerName: nginx
           ContainerPort: 80
           TargetGroupArn: !Ref AlbTargetGroup
+      PlacementStrategies:
+        - Type: spread
+          Field: attribute:ecs.availability-zone
 
   ServiceApplicationAutoScalingRole:
     Type: AWS::IAM::Role
