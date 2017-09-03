@@ -1,0 +1,387 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: ECS Target Tracking Stack
+
+Parameters:
+  NetworkStackNamePrefix:
+    Type: String
+    Default: simple-nw
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+  AcmIdentifier:
+    Type: String
+  HostedZoneId:
+    Type: AWS::Route53::HostedZone::Id
+  HostedZoneName:
+    Type: String
+  EcrRepositoryName:
+    Type: String
+    Default: test
+  ClusterInstanceImageId:
+    Type: AWS::EC2::Image::Id
+  ServiceDesiredCount:
+    Type: Number
+    Default: 1
+
+Resources:
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action:
+              - sts:AssumeRole
+
+  NginxLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /${AWS::StackName}/nginx
+
+  AppLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /${AWS::StackName}/app
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: application-stack
+      TaskRoleArn: !Ref TaskRole
+      NetworkMode: bridge
+      ContainerDefinitions:
+        - Name: nginx
+          Image: !Sub ${AWS::AccountId}.dkr.ecr.ap-northeast-1.amazonaws.com/${EcrRepositoryName}:test1_nginx
+          Memory: 256
+          Cpu: 256
+          Essential: true
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref NginxLogGroup
+              awslogs-region: !Ref AWS::Region
+          PortMappings:
+            - ContainerPort: 80
+              HostPort: 0
+              Protocol: tcp
+          Links:
+            - app
+        - Name: app
+          Image: !Sub ${AWS::AccountId}.dkr.ecr.ap-northeast-1.amazonaws.com/${EcrRepositoryName}:test1_app
+          Memory: 256
+          Cpu: 256
+          Essential: true
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref AppLogGroup
+              awslogs-region: !Ref AWS::Region
+
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Ref AWS::StackName
+      VpcId:
+        Fn::ImportValue: !Sub ${NetworkStackNamePrefix}-VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+
+  Alb:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Scheme: internet-facing
+      Subnets:
+        - Fn::ImportValue: !Sub ${NetworkStackNamePrefix}-FrontendSubnet1Id
+        - Fn::ImportValue: !Sub ${NetworkStackNamePrefix}-FrontendSubnet2Id
+      LoadBalancerAttributes:
+        - Key: idle_timeout.timeout_seconds
+          Value: 200
+      SecurityGroups:
+        - !Ref AlbSecurityGroup
+
+  AlbTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId:
+        Fn::ImportValue: !Sub ${NetworkStackNamePrefix}-VpcId
+      HealthCheckIntervalSeconds: 30
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: /api/health-check
+      Port: 80
+      HealthyThresholdCount: 5
+      HealthCheckTimeoutSeconds: 5
+      UnhealthyThresholdCount: 2
+      Protocol: HTTP
+      Matcher:
+        HttpCode: 200
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: 300
+
+  AlbListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref Alb
+      Protocol: HTTPS
+      Port: 443
+      Certificates:
+        - CertificateArn: !Sub arn:aws:acm:${AWS::Region}:${AWS::AccountId}:certificate/${AcmIdentifier}
+      DefaultActions:
+        - TargetGroupArn: !Ref AlbTargetGroup
+          Type: forward
+
+  ClusterInstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Ref AWS::StackName
+      VpcId:
+        Fn::ImportValue: !Sub ${NetworkStackNamePrefix}-VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 0
+          ToPort: 65535
+          SourceSecurityGroupId: !Ref AlbSecurityGroup
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+
+  Cluster:
+    Type: AWS::ECS::Cluster
+
+  ClusterInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+              - ec2.amazonaws.com
+          Action:
+            - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role
+
+  ClusterInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+        - !Ref ClusterInstanceRole
+
+  ClusterInstanceLaunchConfiguration:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ImageId: !Ref ClusterInstanceImageId
+      InstanceType: t2.micro
+      AssociatePublicIpAddress: true
+      IamInstanceProfile: !Ref ClusterInstanceProfile
+      KeyName: !Ref KeyName
+      SecurityGroups:
+        - !Ref ClusterInstanceSecurityGroup
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 80
+            VolumeType: gp2
+        - DeviceName: /dev/xvdcz
+          Ebs:
+            VolumeSize: 300
+            VolumeType: gp2
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          echo ECS_CLUSTER=${Cluster} >> /etc/ecs/ecs.config
+          yum install -y aws-cfn-bootstrap
+          /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource ClusterInstanceAutoScalingGroup --region ${AWS::Region}
+
+  ClusterInstanceAutoScalingGroup:
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT15M
+    UpdatePolicy:
+      AutoScalingReplacingUpdate:
+        WillReplace: true
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier:
+        - Fn::ImportValue: !Sub ${NetworkStackNamePrefix}-ApplicationSubnet1Id
+        - Fn::ImportValue: !Sub ${NetworkStackNamePrefix}-ApplicationSubnet2Id
+      LaunchConfigurationName: !Ref ClusterInstanceLaunchConfiguration
+      MinSize: 2
+      MaxSize: 10
+
+  ClusterScaleOutPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref ClusterInstanceAutoScalingGroup
+      AdjustmentType: PercentChangeInCapacity
+      MinAdjustmentStep: 1
+      Cooldown: 420 # waiting for 7 minutes
+      ScalingAdjustment: 40
+
+  ClusterScaleInPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref ClusterInstanceAutoScalingGroup
+      AdjustmentType: ChangeInCapacity
+      Cooldown: 180 # waiting for 3 minutes
+      ScalingAdjustment: "-1"
+
+  ClusterCloudWatchAlarmCpuReservationHigh:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: !Sub ${AWS::StackName}-stack
+      Namespace: AWS/ECS
+      Dimensions:
+        - Name: ClusterName
+          Value: !Ref Cluster
+      MetricName: CPUReservation
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Statistic: Average
+      Period: 60
+      EvaluationPeriods: 5
+      Threshold: 50
+      AlarmActions:
+        - !Ref ClusterScaleOutPolicy
+
+  ClusterCloudWatchAlarmMemoryReservationHigh:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: !Sub ${AWS::StackName}-stack
+      Namespace: AWS/ECS
+      Dimensions:
+        - Name: ClusterName
+          Value: !Ref Cluster
+      MetricName: MemoryReservation
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Statistic: Average
+      Period: 60
+      EvaluationPeriods: 5
+      Threshold: 50
+      AlarmActions:
+        - !Ref ClusterScaleOutPolicy
+
+  ClusterCloudWatchAlarmCpuReservationLow:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: !Sub ${AWS::StackName}-stack
+      Namespace: AWS/ECS
+      Dimensions:
+        - Name: ClusterName
+          Value: !Ref Cluster
+      MetricName: CPUReservation
+      ComparisonOperator: LessThanOrEqualToThreshold
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 60
+      Threshold: 25
+      AlarmActions:
+        - !Ref ClusterScaleInPolicy
+
+  ClusterCloudWatchAlarmMemoryReservationLow:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: !Sub ${AWS::StackName}-Stack
+      Namespace: AWS/ECS
+      Dimensions:
+        - Name: ClusterName
+          Value: !Ref Cluster
+      MetricName: MemoryReservation
+      ComparisonOperator: LessThanOrEqualToThreshold
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 60
+      Threshold: 25
+      AlarmActions:
+        - !Ref ClusterScaleInPolicy
+
+  ServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceRole
+
+  Service:
+    DependsOn: AlbListener
+    Type: AWS::ECS::Service
+    Properties:
+      Cluster: !Ref Cluster
+      Role: !Ref ServiceRole
+      TaskDefinition: !Ref TaskDefinition
+      DesiredCount: !Ref ServiceDesiredCount
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 50
+      LoadBalancers:
+        - ContainerName: nginx
+          ContainerPort: 80
+          TargetGroupArn: !Ref AlbTargetGroup
+
+  ServiceApplicationAutoScalingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: application-autoscaling.amazonaws.com
+          Action: sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceAutoscaleRole
+        - arn:aws:iam::aws:policy/CloudWatchFullAccess
+
+  ServiceApplicationAutoScalingScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 5
+      MinCapacity: 1
+      ResourceId: !Join [ "/", [ service, !Ref Cluster, !GetAtt Service.Name ] ]
+      RoleARN: !GetAtt ServiceApplicationAutoScalingRole.Arn
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+
+  # not work for ecs now?
+  # http://docs.aws.amazon.com/ApplicationAutoScaling/latest/APIReference/API_PredefinedMetricSpecification.html#ApplicationAutoScaling-Type-PredefinedMetricSpecification-PredefinedMetricType
+  ServiceApplicationAutoScalingScalingPolicy:
+    DependsOn: ServiceApplicationAutoScalingRole
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: TargetTracking
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref ServiceApplicationAutoScalingScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 25.0
+        ScaleInCooldown: 180
+        ScaleOutCooldown: 420
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+
+  RecordSet:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Sub scaling2.${HostedZoneName}
+      Type: A
+      AliasTarget:
+        HostedZoneId: !GetAtt Alb.CanonicalHostedZoneID
+        DNSName: !GetAtt Alb.DNSName
