@@ -381,10 +381,13 @@ Resources:
       ScalingTargetId: !Ref ServiceApplicationAutoScalingScalableTarget
       StepScalingPolicyConfiguration:
         AdjustmentType: ChangeInCapacity
+        #AdjustmentType: PercentChangeInCapacity
+        #MinAdjustmentMagnitude: 1
         Cooldown: 180
         StepAdjustments:
           - MetricIntervalLowerBound: 0
             ScalingAdjustment: "-1"
+            #ScalingAdjustment: "-25"
 
   ServiceApplicationAutoScalingCloudWatchAlarmCpuUtilizationHigh:
     Type: AWS::CloudWatch::Alarm
