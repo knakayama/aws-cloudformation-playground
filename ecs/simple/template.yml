@@ -3,12 +3,9 @@ AWSTemplateFormatVersion: 2010-09-09
 Description: ECS Simple Stack
 
 Parameters:
-  VpcId:
-    Type: AWS::EC2::VPC::Id
-  FrontendSubnetIds:
-    Type: List<AWS::EC2::Subnet::Id>
-  ApplicationSubnetIds:
-    Type: List<AWS::EC2::Subnet::Id>
+  NetworkStackNamePrefix:
+    Type: String
+    Default: simple-nw
   KeyName:
     Type: AWS::EC2::KeyPair::KeyName
   AcmIdentifier:
@@ -84,7 +81,8 @@ Resources:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: !Ref AWS::StackName
-      VpcId: !Ref VpcId
+      VpcId:
+        Fn::ImportValue: !Sub ${NetworkStackNamePrefix}-VpcId
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 443
@@ -95,7 +93,9 @@ Resources:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
       Scheme: internet-facing
-      Subnets: !Ref FrontendSubnetIds
+      Subnets:
+        - Fn::ImportValue: !Sub ${NetworkStackNamePrefix}-FrontendSubnet1Id
+        - Fn::ImportValue: !Sub ${NetworkStackNamePrefix}-FrontendSubnet2Id
       LoadBalancerAttributes:
         - Key: idle_timeout.timeout_seconds
           Value: 200
@@ -105,7 +105,8 @@ Resources:
   AlbTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      VpcId: !Ref VpcId
+      VpcId:
+        Fn::ImportValue: !Sub ${NetworkStackNamePrefix}-VpcId
       HealthCheckIntervalSeconds: 30
       HealthCheckProtocol: HTTP
       HealthCheckPath: /api/health-check
@@ -136,7 +137,8 @@ Resources:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: !Ref AWS::StackName
-      VpcId: !Ref VpcId
+      VpcId:
+        Fn::ImportValue: !Sub ${NetworkStackNamePrefix}-VpcId
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 0
@@ -198,11 +200,12 @@ Resources:
         WillReplace: true
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
-      VPCZoneIdentifier: !Ref ApplicationSubnetIds
+      VPCZoneIdentifier:
+        - Fn::ImportValue: !Sub ${NetworkStackNamePrefix}-ApplicationSubnet1Id
+        - Fn::ImportValue: !Sub ${NetworkStackNamePrefix}-ApplicationSubnet2Id
       LaunchConfigurationName: !Ref ClusterInstanceLaunchConfiguration
       MinSize: 1
       MaxSize: 1
-      DesiredCapacity: 1
 
   ServiceRole:
     Type: AWS::IAM::Role
@@ -239,7 +242,7 @@ Resources:
     Type: AWS::Route53::RecordSet
     Properties:
       HostedZoneId: !Ref HostedZoneId
-      Name: !Sub api.${HostedZoneName}
+      Name: !Sub simple.${HostedZoneName}
       Type: A
       AliasTarget:
         HostedZoneId: !GetAtt Alb.CanonicalHostedZoneID
