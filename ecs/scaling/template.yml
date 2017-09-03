@@ -176,6 +176,18 @@ Resources:
           Action:
             - sts:AssumeRole
       Path: /
+      # not work
+      #Policies:
+      #  - PolicyName: !Sub ${AWS::StackName}-cluster-instance-policy
+      #    PolicyDocument:
+      #      Version: 2012-10-17
+      #      Statement:
+      #        - Effect: Allow
+      #          Action:
+      #            - elasticloadbalancing:DescribeTargetHealth
+      #          # not work
+      #          #Resource: !Ref AlbTargetGroup
+      #          Resource: "*"
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role
 
@@ -208,7 +220,24 @@ Resources:
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash -xe
-          echo ECS_CLUSTER=${Cluster} >> /etc/ecs/ecs.config
+          echo ECS_CLUSTER=${Cluster} > /etc/ecs/ecs.config
+
+          # not work
+          #yum install -y python27-pip
+          #pip install -U pip
+          #/usr/local/bin/pip install awscli
+          #instance_id=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+
+          #while true; do
+          #  target_health="$(/usr/local/bin/aws elbv2 describe-target-health \
+          #    --target-group-arn ${AlbTargetGroup} \
+          #    --query 'TargetHealthDescriptions[?Target.Id==`'$instance_id'`].TargetHealth' \
+          #    --region ${AWS::Region} \
+          #    --output text)"
+          #  [[ "$target_health" == "healthy" ]] && exit 0
+          #  sleep 5
+          #done
+
           yum install -y aws-cfn-bootstrap
           /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource ClusterInstanceAutoScalingGroup --region ${AWS::Region}
 
@@ -219,6 +248,9 @@ Resources:
     UpdatePolicy:
       AutoScalingReplacingUpdate:
         WillReplace: true
+      #AutoScalingRollingUpdate:
+      #  MaxBatchSize: 1
+      #  MinInstancesInService: 1
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
       VPCZoneIdentifier:
