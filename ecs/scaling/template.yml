@@ -22,8 +22,17 @@ Parameters:
   ServiceDesiredCount:
     Type: Number
     Default: 1
+  SnsTopicSubscriptionEmail:
+    Type: String
 
 Resources:
+  SnsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      Subscription:
+        - Endpoint: !Ref SnsTopicSubscriptionEmail
+          Protocol: email
+
   TaskRole:
     Type: AWS::IAM::Role
     Properties:
@@ -252,6 +261,7 @@ Resources:
       Threshold: 50
       AlarmActions:
         - !Ref ClusterScaleOutPolicy
+        - !Ref SnsTopic
 
   ClusterCloudWatchAlarmMemoryReservationHigh:
     Type: AWS::CloudWatch::Alarm
@@ -269,6 +279,7 @@ Resources:
       Threshold: 50
       AlarmActions:
         - !Ref ClusterScaleOutPolicy
+        - !Ref SnsTopic
 
   ClusterCloudWatchAlarmCpuReservationLow:
     Type: AWS::CloudWatch::Alarm
@@ -286,6 +297,7 @@ Resources:
       Threshold: 25
       AlarmActions:
         - !Ref ClusterScaleInPolicy
+        - !Ref SnsTopic
 
   ClusterCloudWatchAlarmMemoryReservationLow:
     Type: AWS::CloudWatch::Alarm
@@ -303,6 +315,7 @@ Resources:
       Threshold: 25
       AlarmActions:
         - !Ref ClusterScaleInPolicy
+        - !Ref SnsTopic
 
   ServiceRole:
     Type: AWS::IAM::Role
@@ -407,6 +420,7 @@ Resources:
       Threshold: 50
       AlarmActions:
         - !Ref ServiceApplicationAutoScalingScaleOutPolicy
+        - !Ref SnsTopic
 
   ServiceApplicationAutoScalingCloudWatchAlarmCpuUtilizationLow:
     Type: AWS::CloudWatch::Alarm
@@ -426,6 +440,7 @@ Resources:
       Threshold: 25
       AlarmActions:
         - !Ref ServiceApplicationAutoScalingScaleInPolicy
+        - !Ref SnsTopic
 
   RecordSet:
     Type: AWS::Route53::RecordSet
