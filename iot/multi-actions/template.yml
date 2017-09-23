@@ -1,6 +1,6 @@
 ---
 AWSTemplateFormatVersion: 2010-09-09
-Description: AWS IoT Kinesis Firehose Stack
+Description: AWS IoT Multi Actions Stack
 
 Parameters:
   IoTCertificateId:
@@ -10,12 +10,12 @@ Resources:
   IoTTing:
     Type: AWS::IoT::Thing
     Properties:
-      ThingName: iot-firehose
+      ThingName: iot-multi-actions
 
   IoTPolicy:
     Type: AWS::IoT::Policy
     Properties:
-      PolicyName: iot_firehose
+      PolicyName: iot_multi_actions
       PolicyDocument:
         Version: 2012-10-17
         Statement:
@@ -37,6 +37,19 @@ Resources:
       ThingName: !Ref IoTTing
       Principal: !Sub arn:aws:iot:${AWS::Region}:${AWS::AccountId}:cert/${IoTCertificateId}
 
+  DynamoDBTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: message
+          AttributeType: S
+      KeySchema:
+        - AttributeName: message
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+
   IoTRole:
     Type: AWS::IAM::Role
     Properties:
@@ -49,9 +62,9 @@ Resources:
                 - iot.amazonaws.com
             Action:
               - sts:AssumeRole
-      Path: /iot/firehose/
+      Path: /iot/multi-actions/
       Policies:
-        - PolicyName: firehose-put-record
+        - PolicyName: multi-actions-policy
           PolicyDocument:
             Version: 2012-10-17
             Statement:
@@ -60,6 +73,9 @@ Resources:
                   - firehose:PutRecord
                   - firehose:PutRecordBatch
                 Resource: !Sub arn:aws:firehose:${AWS::Region}:${AWS::AccountId}:deliverystream/${KinesisFirehose}
+              - Effect: Allow
+                Action: dynamodb:*
+                Resource: !GetAtt DynamoDBTable.Arn
 
   KinesisFirehoseRole:
     Type: AWS::IAM::Role
@@ -110,12 +126,16 @@ Resources:
   IotTopicRule:
     Type: AWS::IoT::TopicRule
     Properties:
-      RuleName: iot_firehose
+      RuleName: iot_multi_actions
       TopicRulePayload:
         RuleDisabled: false
-        Sql: SELECT * FROM 'iot/firehose'
+        Sql: SELECT * FROM 'iot/multi-actions'
         Actions:
           - Firehose:
               DeliveryStreamName: !Ref KinesisFirehose
               RoleArn: !GetAtt IoTRole.Arn
               Separator: "\n"
+          - DynamoDBv2:
+              RoleArn: !GetAtt IoTRole.Arn
+              PutItem:
+                TableName: !Ref DynamoDBTable
