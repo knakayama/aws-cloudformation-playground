@@ -1,3 +1,7 @@
 .cfn/
 tmp/
 packaged.yaml
+iot-cert.json
+*.pem
+*.crt
+*.key
