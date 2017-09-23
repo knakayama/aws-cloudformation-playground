@@ -5,3 +5,4 @@ iot-cert.json
 *.pem
 *.crt
 *.key
+*.py

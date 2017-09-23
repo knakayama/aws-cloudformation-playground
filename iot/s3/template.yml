@@ -7,6 +7,11 @@ Parameters:
     Type: String
 
 Resources:
+  IoTTing:
+    Type: AWS::IoT::Thing
+    Properties:
+      ThingName: iot-s3
+
   IoTPolicy:
     Type: AWS::IoT::Policy
     Properties:
@@ -24,6 +29,12 @@ Resources:
     Type: AWS::IoT::PolicyPrincipalAttachment
     Properties:
       PolicyName: !Ref IoTPolicy
+      Principal: !Sub arn:aws:iot:${AWS::Region}:${AWS::AccountId}:cert/${IoTCertificateId}
+
+  IoTThingPrincipalAttachment:
+    Type: AWS::IoT::ThingPrincipalAttachment
+    Properties:
+      ThingName: !Ref IoTTing
       Principal: !Sub arn:aws:iot:${AWS::Region}:${AWS::AccountId}:cert/${IoTCertificateId}
 
   IoTRole:
