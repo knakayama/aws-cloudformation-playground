@@ -1,0 +1,54 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: AWS IoT Error Action Stack
+
+Resources:
+  Bucket:
+    Type: AWS::S3::Bucket
+
+  DynamoDbTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${AWS::StackName}-table
+      AttributeDefinitions:
+        - AttributeName: deviceId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: deviceId
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+
+  IoTTopicRuleRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - iot.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: !Sub /${AWS::StackName}/
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+
+  IotTopicRule:
+    Type: AWS::IoT::TopicRule
+    Properties:
+      RuleName: error_action_topic_rule
+      TopicRulePayload:
+        RuleDisabled: false
+        Sql: SELECT * FROM 'iot/error'
+        Actions:
+          - DynamoDBv2:
+              RoleArn: !GetAtt IoTTopicRuleRole.Arn
+              PutItem:
+                TableName: !Ref DynamoDbTable
+          #- S3:
+          #    RoleArn: !GetAtt IoTTopicRuleRole.Arn
+          #    BucketName: !Ref Bucket
+          #    Key: iot_s3
