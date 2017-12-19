@@ -1,0 +1,41 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: AWS IoT LWT Stack
+
+Resources:
+  IoTTopicRuleRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - iot.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: !Sub /${AWS::StackName}/
+      Policies:
+        - PolicyName: !Sub ${AWS::StackName}-iot-topic-rule-role-policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - iot:Publish
+                #Resource: !Sub arn:aws:iot:${AWS::Region}:${AWS::AccountId}:topic/my/things/thing_0/update
+                Resource: "*"
+
+  IotTopicRule:
+    Type: AWS::IoT::TopicRule
+    Properties:
+      RuleName: topic_rule
+      TopicRulePayload:
+        RuleDisabled: false
+        Sql: |
+          SELECT * FROM 'my/things/thing_0/update'
+        Actions:
+          - Republish:
+              RoleArn: !GetAtt IoTTopicRuleRole.Arn
+              Topic: $aws/things/thing_0/shadow/update
