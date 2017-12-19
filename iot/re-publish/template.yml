@@ -35,5 +35,5 @@ Resources:
         Sql: SELECT * FROM 'iot/republish'
         Actions:
           - Republish:
-              RoleArn: !GetAtt IoTTopicRuleRole.Arn
               Topic: iot/republished
+              RoleArn: !GetAtt IoTTopicRuleRole.Arn

@@ -24,8 +24,7 @@ Resources:
               - Effect: Allow
                 Action:
                   - iot:Publish
-                #Resource: !Sub arn:aws:iot:${AWS::Region}:${AWS::AccountId}:topic/my/things/thing_0/update
-                Resource: "*"
+                Resource: !Sub arn:aws:iot:${AWS::Region}:${AWS::AccountId}:topic/$aws/things/thing_0/shadow/update
 
   IotTopicRule:
     Type: AWS::IoT::TopicRule
@@ -37,5 +36,6 @@ Resources:
           SELECT * FROM 'my/things/thing_0/update'
         Actions:
           - Republish:
+              # $$としないと上手く動かなかった
+              Topic: $$aws/things/thing_0/shadow/update
               RoleArn: !GetAtt IoTTopicRuleRole.Arn
-              Topic: $aws/things/thing_0/shadow/update
