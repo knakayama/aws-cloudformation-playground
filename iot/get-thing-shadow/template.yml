@@ -1,0 +1,68 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: Sample Stack
+
+Parameters:
+  Thing:
+    Type: String
+    Default: thing_0
+
+Resources:
+  IoTTopicRuleGetThingShadowRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - iot.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: !Sub /${AWS::StackName}/
+      Policies:
+        - PolicyName: !Sub ${AWS::StackName}-iot-topic-rule-get-thing-shadow-role-policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - iot:GetThingShadow
+                Resource: !Sub arn:aws:iot:${AWS::Region}:${AWS::AccountId}:thing/${Thing}
+
+  IoTTopicRuleRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - iot.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: !Sub /${AWS::StackName}/
+      Policies:
+        - PolicyName: !Sub ${AWS::StackName}-iot-topic-rule-role-policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - iot:Publish
+                Resource: !Sub arn:aws:iot:${AWS::Region}:${AWS::AccountId}:topic/$aws/things/${Thing}/shadow/update
+
+  IotTopicRule:
+    Type: AWS::IoT::TopicRule
+    Properties:
+      RuleName: topic_rule
+      TopicRulePayload:
+        RuleDisabled: false
+        Sql: !Sub |
+          SELECT * FROM 'my/things/${Thing}/update' WHERE state.reported.door <> get_thing_shadow(${Thing}, "${IoTTopicRuleGetThingShadowRole.Arn}").state.reported.door
+        Actions:
+          - Republish:
+              Topic: !Sub $$aws/things/${Thing}/shadow/update
+              RoleArn: !GetAtt IoTTopicRuleRole.Arn
