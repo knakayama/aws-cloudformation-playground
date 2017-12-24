@@ -1,7 +1,0 @@
-{
-  "document": {
-    "operation": "install",
-    "url": "http://amazon.com/firmWareUpate-01",
-    "data": "${aws:iot:s3-presigned-url:https://s3.amazonaws.com/ota-update-firmwarebucket-1lz88u80pzn05/dummyfile}"
-  }
-}
