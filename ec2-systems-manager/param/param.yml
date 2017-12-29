@@ -1,0 +1,20 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: SSM Param - Param Stack
+
+Resources:
+  BasicParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: param1
+      Type: String
+      Value: value1
+      Description: Param1
+
+  BasicParameters:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: param2
+      Type: StringList
+      Value: value1,value2
+      Description: Param2

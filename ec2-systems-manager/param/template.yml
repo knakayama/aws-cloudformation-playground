@@ -1,0 +1,21 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: SSM Param
+
+Parameters:
+  BasicParameter:
+    Type: AWS::SSM::Parameter::Value<String>
+
+  BasicParameters:
+    Type: AWS::SSM::Parameter::Value<List<String>>
+
+Resources:
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 192.168.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: param1
+          Value: !Ref BasicParameter
