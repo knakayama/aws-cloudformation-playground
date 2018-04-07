@@ -1,27 +1,14 @@
 #!/usr/bin/env bash
 
 image_name="awscli"
-build_flag=false
 
-while getopts ':b' args; do
-  case "$args" in
-    b)
-      build_flag=true
-      ;;
-  esac
-done
-
-if [[ "$build_flag" == true ]]; then
-  docker image build \
-    --tag "$image_name" "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  shift
-fi
+docker image build \
+  --tag "$image_name" "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 docker container run \
   --tty \
   --rm \
   --volume ${PWD}:/cloudformation \
-  --env AWS_ACCESS_KEY_ID="$(aws configure get aws_access_key_id)" \
-  --env AWS_SECRET_ACCESS_KEY="$(aws configure get aws_secret_access_key)" \
+  --volume ${HOME}/.aws:/root/.aws:ro \
   "$image_name" \
   $@

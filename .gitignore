@@ -7,3 +7,4 @@ iot-cert.json
 *.key
 *.py
 output/
+.venv/
