@@ -8,3 +8,4 @@ iot-cert.json
 *.py
 output/
 .venv/
+.envrc
