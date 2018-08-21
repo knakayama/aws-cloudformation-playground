@@ -1,0 +1,40 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Glue Stack
+
+Resources:
+  GlueIAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub glue-iam-role-${AWS::StackName}
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: glue.amazonaws.com
+            Action: sts:AssumeRole
+      Path: !Sub /${AWS::StackName}/
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+
+  GlueBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub glue-bucket-${AWS::StackName}
+
+  BlueCrawler:
+    Type: AWS::Glue::Crawler
+    Properties:
+      Name: !Sub demo-crawler-${AWS::StackName}
+      Description: !Sub |
+        demo-crawler-${AWS::StackName}
+      Role: !GetAtt GlueIAMRole.Arn
+      Targets:
+        S3Targets:
+          - Path: !Sub s3://${GlueBucket}
+      DatabaseName: !Sub flights-db-${AWS::StackName}
+      SchemaChangePolicy:
+        UpdateBehavior: UPDATE_IN_DATABASE
+        DeleteBehavior: DEPRECATE_IN_DATABASE
+      TablePrefix: flights
