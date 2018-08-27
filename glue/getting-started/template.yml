@@ -18,23 +18,37 @@ Resources:
         - arn:aws:iam::aws:policy/AmazonS3FullAccess
         - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
 
-  BlueCrawler:
+  GlueTargetBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub glue-target-bucket-${AWS::StackName}
+
+  GlueDatabase:
+    Type: AWS::Glue::Database
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseInput:
+        Name: !Sub glue-database-${AWS::StackName}
+        Description: !Sub |
+          glue-database-${AWS::StackName}
+        Parameters:
+          key1: value1
+          key2: value2
+
+  GlueCrawler:
     Type: AWS::Glue::Crawler
     Properties:
-      Name: !Sub demo-crawler-${AWS::StackName}
+      Name: !Sub glue-crawler-${AWS::StackName}
       Description: !Sub |
-        demo-crawler-${AWS::StackName}
+        glue-crawler-${AWS::StackName}
       Role: !GetAtt GlueIAMRole.Arn
       Targets:
         S3Targets:
-          - Path: s3://crawler-public-ap-northeast-1/flight/2016/csv
-      DatabaseName: !Sub flights-db-${AWS::StackName}
+          - Path: !Ref GlueTargetBucket
+      DatabaseName: !Ref GlueDatabase
       SchemaChangePolicy:
         UpdateBehavior: UPDATE_IN_DATABASE
         DeleteBehavior: DEPRECATE_IN_DATABASE
-      TablePrefix: flights
-
-  GlueBucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: !Sub glue-bucket-${AWS::StackName}
+      TablePrefix: flights_
+      Schedule:
+        ScheduleExpression: "cron(0/10 * ? * * *)"
