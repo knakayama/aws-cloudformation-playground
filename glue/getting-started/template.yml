@@ -49,6 +49,8 @@ Resources:
       SchemaChangePolicy:
         UpdateBehavior: UPDATE_IN_DATABASE
         DeleteBehavior: DEPRECATE_IN_DATABASE
+        #DeleteBehavior: DELETE_FROM_DATABASE
+        #DeleteBehavior: LOG
       TablePrefix: flights_
-      Schedule:
-        ScheduleExpression: "cron(0/10 * ? * * *)"
+      #Schedule:
+      #  ScheduleExpression: "cron(0/10 * ? * * *)"
