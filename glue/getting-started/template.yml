@@ -18,10 +18,10 @@ Resources:
         - arn:aws:iam::aws:policy/AmazonS3FullAccess
         - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
 
-  GlueTargetBucket:
+  GlueSourceBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub glue-target-bucket-${AWS::StackName}
+      BucketName: !Sub glue-source-bucket-${AWS::StackName}
 
   GlueDatabase:
     Type: AWS::Glue::Database
@@ -44,7 +44,7 @@ Resources:
       Role: !GetAtt GlueIAMRole.Arn
       Targets:
         S3Targets:
-          - Path: !Ref GlueTargetBucket
+          - Path: !Ref GlueSourceBucket
       DatabaseName: !Ref GlueDatabase
       SchemaChangePolicy:
         UpdateBehavior: UPDATE_IN_DATABASE
@@ -54,3 +54,8 @@ Resources:
       TablePrefix: flights_
       #Schedule:
       #  ScheduleExpression: "cron(0/10 * ? * * *)"
+
+  GlueTargetBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub glue-target-bucket-${AWS::StackName}
