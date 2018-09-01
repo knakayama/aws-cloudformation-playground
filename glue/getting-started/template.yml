@@ -2,10 +2,26 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: Glue Stack
 
 Resources:
-  GlueIAMRole:
+  GlueCrawlerIAMRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub glue-iam-role-${AWS::StackName}
+      RoleName: !Sub glue-crawler-iam-role-${AWS::StackName}
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: glue.amazonaws.com
+            Action: sts:AssumeRole
+      Path: !Sub /${AWS::StackName}/
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+
+  GlueJobIAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub glue-job-iam-role-${AWS::StackName}
       AssumeRolePolicyDocument:
         Version: 2012-10-17
         Statement:
@@ -22,6 +38,21 @@ Resources:
     Type: AWS::S3::Bucket
     Properties:
       BucketName: !Sub glue-source-bucket-${AWS::StackName}
+
+  GlueTargetBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub glue-target-bucket-${AWS::StackName}
+
+  GlueScriptsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub glue-scripts-bucket-${AWS::StackName}
+
+  GlueTmpBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub glue-tmp-bucket-${AWS::StackName}
 
   GlueDatabase:
     Type: AWS::Glue::Database
@@ -41,7 +72,7 @@ Resources:
       Name: !Sub glue-crawler-${AWS::StackName}
       Description: !Sub |
         glue-crawler-${AWS::StackName}
-      Role: !GetAtt GlueIAMRole.Arn
+      Role: !GetAtt GlueCrawlerIAMRole.Arn
       Targets:
         S3Targets:
           - Path: !Ref GlueSourceBucket
@@ -55,7 +86,19 @@ Resources:
       #Schedule:
       #  ScheduleExpression: "cron(0/10 * ? * * *)"
 
-  GlueTargetBucket:
-    Type: AWS::S3::Bucket
+  GlueJob:
+    Type: AWS::Glue::Job
     Properties:
-      BucketName: !Sub glue-target-bucket-${AWS::StackName}
+      Name: !Sub glue-job-${AWS::StackName}
+      Role: !GetAtt GlueJobIAMRole.Arn
+      Command:
+        Name: glueetl
+        ScriptLocation: !Sub s3://${GlueScriptsBucket}/glue.py
+      DefaultArguments:
+        --TempDir: !Sub s3://${GlueTmpBucket}/${AWS::StackName}
+        --job-bookmark-option: job-bookmark-disable
+        --job-language: python
+      ExecutionProperty:
+        MaxConcurrentRuns: 1
+      MaxRetries: 0
+      AllocatedCapacity: 10
