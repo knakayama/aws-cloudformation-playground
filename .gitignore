@@ -6,7 +6,7 @@ iot-cert.json
 *.crt
 *.key
 *.py
-!glue/getting-started/*.py
+!glue/**/*.py
 output/
 .venv/
 .envrc

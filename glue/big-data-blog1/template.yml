@@ -1,0 +1,95 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: |
+  https://aws.amazon.com/blogs/big-data/harmonize-query-and-visualize-data-from-various-providers-using-aws-glue-amazon-athena-and-amazon-quicksight/
+
+Resources:
+  NYCityTaxiCrawlerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ny-city-taxi-crawler-role
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: glue.amazonaws.com
+            Action: sts:AssumeRole
+      Path: !Sub /${AWS::StackName}/
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+
+  NYCityTaxiDatabase:
+    Type: AWS::Glue::Database
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseInput:
+        Name: nycitytaxianalysis
+        Description: |
+          NYCityTaxiDatabase
+
+  NYCityTaxiCrawler:
+    Type: AWS::Glue::Crawler
+    Properties:
+      Name: NYCityTaxiCrawler
+      Description: |
+        NYCityTaxiCrawler
+      Role: !GetAtt NYCityTaxiCrawlerRole.Arn
+      Targets:
+        S3Targets:
+          - Path: s3://serverless-analytics/glue-blog
+      DatabaseName: !Ref NYCityTaxiDatabase
+      SchemaChangePolicy:
+        UpdateBehavior: UPDATE_IN_DATABASE
+        DeleteBehavior: DEPRECATE_IN_DATABASE
+      TablePrefix: blog_
+
+  NYCityTaxiJobRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ny-city-taxi-job-role
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: glue.amazonaws.com
+            Action: sts:AssumeRole
+      Path: !Sub /${AWS::StackName}/
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+
+  NYCityTaxiJobScriptsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ny-city-taxi-job-scripts-bucket-${AWS::AccountId}
+
+  NYCityTaxiJobTmpBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ny-city-taxi-job-tmp-bucket-${AWS::AccountId}
+
+  NYCityTaxiJobTargetBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ny-city-taxi-job-target-bucket-${AWS::AccountId}
+
+  NYCityTaxiJobYellow:
+    Type: AWS::Glue::Job
+    Properties:
+      Name: NYCityTaxiJobYellow
+      Role: !GetAtt NYCityTaxiJobRole.Arn
+      Command:
+        Name: glueetl
+        ScriptLocation: !Sub s3://${NYCityTaxiJobScriptsBucket}/ny_city_taxi_job.py
+      DefaultArguments:
+        --TempDir: !Sub s3://${NYCityTaxiJobTmpBucket}/yellow
+        --job-bookmark-option: job-bookmark-disable
+        --job-language: python
+        --target_bucket: !Ref NYCityTaxiJobTargetBucket
+        --color: yellow
+      ExecutionProperty:
+        MaxConcurrentRuns: 1
+      MaxRetries: 0
+      AllocatedCapacity: 10
