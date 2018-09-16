@@ -1,0 +1,98 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: EMR Stack
+
+Parameters:
+  NetworkStackName:
+    Type: String
+    Default: network
+
+  Ec2KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+
+Resources:
+  EmrOutputBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub emr-output-bucket-${AWS::AccountId}-${AWS::StackName}
+
+  EmrLogBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub emr-log-bucket-${AWS::AccountId}-${AWS::StackName}
+
+  EmrServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub emr-service-role-${AWS::StackName}
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: elasticmapreduce.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonElasticMapReduceRole
+
+  EmrJobFlowRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub emr-job-flow-role-${AWS::StackName}
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonElasticMapReduceforEC2Role
+
+  EmrJobFlowInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub emr-job-flow-instance-profile-${AWS::StackName}
+      Path: /
+      Roles:
+        - !Ref EmrJobFlowRole
+
+  EmrClusterSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: emr-cluster-security-group
+      VpcId:
+        Fn::ImportValue: !Sub ${NetworkStackName}-VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+
+  EmrCluster:
+    Type: AWS::EMR::Cluster
+    Properties:
+      Name: !Sub emr-cluster-${AWS::StackName}
+      ServiceRole: !Ref EmrServiceRole
+      JobFlowRole: !Ref EmrJobFlowInstanceProfile
+      ReleaseLabel: emr-5.16.0
+      VisibleToAllUsers: true
+      LogUri: !Sub s3://${EmrLogBucket}/${AWS::StackName}/
+      ScaleDownBehavior: TERMINATE_AT_TASK_COMPLETION
+      Applications:
+        - Name: Hadoop
+        - Name: Hive
+        - Name: Hue
+        - Name: Spark
+      Instances:
+        Ec2SubnetId:
+          Fn::ImportValue: !Sub ${NetworkStackName}-ApplicationSubnet1Id
+        Ec2KeyName: !Ref Ec2KeyName
+        AdditionalMasterSecurityGroups:
+          - !Ref EmrClusterSecurityGroup
+        MasterInstanceGroup:
+          InstanceCount: 1
+          InstanceType: m3.xlarge
+          Market: ON_DEMAND
+          Name: Master
