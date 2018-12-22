@@ -1,0 +1,189 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Simple Fargate
+
+Parameters:
+  NetworkStackNamePrefix:
+    Type: String
+    Default: network
+
+Resources:
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Ref AWS::StackName
+      VpcId:
+        Fn::ImportValue: !Sub ${NetworkStackNamePrefix}-VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+
+  Alb:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub ${AWS::StackName}-alb
+      Scheme: internet-facing
+      Subnets:
+        - Fn::ImportValue: !Sub ${NetworkStackNamePrefix}-FrontendSubnet1Id
+        - Fn::ImportValue: !Sub ${NetworkStackNamePrefix}-FrontendSubnet2Id
+      LoadBalancerAttributes:
+        - Key: idle_timeout.timeout_seconds
+          Value: 200
+      SecurityGroups:
+        - !Ref AlbSecurityGroup
+
+  AlbTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub ${AWS::StackName}-alb-target-group
+      TargetType: ip
+      VpcId:
+        Fn::ImportValue: !Sub ${NetworkStackNamePrefix}-VpcId
+      HealthCheckIntervalSeconds: 30
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: /
+      Port: 80
+      HealthyThresholdCount: 5
+      HealthCheckTimeoutSeconds: 5
+      UnhealthyThresholdCount: 2
+      Protocol: HTTP
+      Matcher:
+        HttpCode: 200
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: 300
+
+  AlbListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref Alb
+      Protocol: HTTPS
+      Port: 443
+      Certificates:
+        - CertificateArn: !Sub arn:aws:acm:${AWS::Region}:${AWS::AccountId}:certificate/{{resolve:ssm:MyAcmIdentifier:1}}
+      DefaultActions:
+        - TargetGroupArn: !Ref AlbTargetGroup
+          Type: forward
+
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /${AWS::StackName}/log
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: simple-family
+      ExecutionRoleArn: !Ref ExecutionRole
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Memory: 512
+      Cpu: 256
+      ContainerDefinitions:
+        - Name: simple
+          Image: httpd:2.4
+          EntryPoint:
+            - sh
+            - -c
+          Command:
+            - /bin/sh -c "echo test > /usr/local/apache2/htdocs/index.html && httpd-foreground"
+          Essential: true
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+          PortMappings:
+            - ContainerPort: 80
+              HostPort: 80
+              Protocol: tcp
+
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub ${AWS::StackName}-cluster
+
+  ServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceRole
+
+  ServiceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Ref AWS::StackName
+      VpcId:
+        Fn::ImportValue: !Sub ${NetworkStackNamePrefix}-VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 0
+          ToPort: 65535
+          SourceSecurityGroupId: !Ref AlbSecurityGroup
+
+  Service:
+    DependsOn: AlbListener
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub ${AWS::StackName}-service
+      LaunchType: FARGATE
+      Cluster: !Ref Cluster
+      TaskDefinition: !Ref TaskDefinition
+      DesiredCount: 1
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+            - !Ref ServiceSecurityGroup
+          Subnets:
+            - Fn::ImportValue: !Sub ${NetworkStackNamePrefix}-ApplicationSubnet1Id
+            - Fn::ImportValue: !Sub ${NetworkStackNamePrefix}-ApplicationSubnet2Id
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+      LoadBalancers:
+        - ContainerName: simple
+          ContainerPort: 80
+          TargetGroupArn: !Ref AlbTargetGroup
+
+  RecordSet:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: "{{resolve:ssm:MyHostedZone:1}}"
+      Name: !Sub fargate.{{resolve:ssm:MyDomain:1}}
+      Type: A
+      AliasTarget:
+        HostedZoneId: !GetAtt Alb.CanonicalHostedZoneID
+        DNSName: !GetAtt Alb.DNSName
+
+Outputs:
+  RecordSet:
+    Value: !Sub https://${RecordSet}
