@@ -1,0 +1,51 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+Description: ECR
+
+Parameters:
+  Env:
+    Type: String
+
+Conditions:
+  IsDev: !Equals [ !Ref Env, dev ]
+
+Resources:
+  ECRRepository:
+    Condition: IsDev
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: ecr
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Rule 1",
+                "selection": {
+                  "tagStatus": "tagged",
+                  "tagPrefixList": ["master"],
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 3
+                },
+                "action": {
+                  "type": "expire"
+                }
+              }
+            ]
+          }
+      RepositoryPolicyText:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - ecr:GetDownloadUrlForLayer
+              - ecr:BatchGetImage
+              - ecr:BatchCheckLayerAvailability
+              - ecr:PutImage
+              - ecr:InitiateLayerUpload
+              - ecr:UploadLayerPart
+              - ecr:CompleteLayerUpload
+            Principal:
+              AWS:
+                - !Sub arn:aws:iam::${AWS::AccountId}:root
