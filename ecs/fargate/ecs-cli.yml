@@ -143,5 +143,22 @@ Outputs:
   ServiceSecurityGroupId:
     Value: !Ref ServiceSecurityGroup
 
+  TaskExecutionRoleArn:
+    Value: !GetAtt TaskExecutionRole.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-TaskExecutionRoleArn
+
   TaskLogGroupName:
     Value: !Ref TaskLogGroup
+    Export:
+      Name: !Sub ${AWS::StackName}-TaskLogGroupName
+
+  ClusterName:
+    Value: !Ref Cluster
+    Export:
+      Name: !Ref Cluster
+
+  AlbTargetGroupArn:
+    Value: !Ref AlbTargetGroup
+    Export:
+      Name: !Ref AlbTargetGroupArn
