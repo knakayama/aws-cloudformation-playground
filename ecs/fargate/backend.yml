@@ -10,7 +10,32 @@ Parameters:
     Type: String
     Default: network
 
+  HostedZoneId:
+    Type: String
+
+  DomainName:
+    Type: String
+
 Resources:
+  AlbLogBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub snippet-alb-log-${Env}
+
+  AlbLogBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref AlbLogBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Action:
+              - s3:PutObject
+            Effect: Allow
+            Resource: !Sub arn:aws:s3:::${AlbLogBucket}/*
+            Principal:
+              AWS: 582318560864
+
   AlbSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -35,6 +60,12 @@ Resources:
       LoadBalancerAttributes:
         - Key: idle_timeout.timeout_seconds
           Value: 200
+        - Key: access_logs.s3.enabled
+          Value: true
+        - Key: access_logs.s3.bucket
+          Value: !Ref AlbLogBucket
+        - Key: access_logs.s3.prefix
+          Value: !Sub snippet-${Env}
       SecurityGroups:
         - !Ref AlbSecurityGroup
 
@@ -90,7 +121,7 @@ Resources:
   TaskLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: snippetbox
+      LogGroupName: !Sub snippetbox-${Env}
 
   Cluster:
     Type: AWS::ECS::Cluster
@@ -126,11 +157,21 @@ Resources:
           ToPort: 65535
           SourceSecurityGroupId: !Ref AlbSecurityGroup
 
+  #RecordSet:
+  #  Type: AWS::Route53::RecordSet
+  #  Properties:
+  #    HostedZoneId: "{{resolve:ssm:MyHostedZone:1}}"
+  #    Name: !Sub fargate.{{resolve:ssm:MyDomain:1}}
+  #    Type: A
+  #    AliasTarget:
+  #      HostedZoneId: !GetAtt Alb.CanonicalHostedZoneID
+  #      DNSName: !GetAtt Alb.DNSName
+
   RecordSet:
     Type: AWS::Route53::RecordSet
     Properties:
-      HostedZoneId: "{{resolve:ssm:MyHostedZone:1}}"
-      Name: !Sub fargate.{{resolve:ssm:MyDomain:1}}
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Sub fargate.${DomainName}
       Type: A
       AliasTarget:
         HostedZoneId: !GetAtt Alb.CanonicalHostedZoneID

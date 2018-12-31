@@ -14,7 +14,7 @@ Resources:
     Condition: IsDev
     Type: AWS::ECR::Repository
     Properties:
-      RepositoryName: !Sub ecr-${Env}
+      RepositoryName: ecr
       LifecyclePolicy:
         LifecyclePolicyText: |
           {
@@ -24,7 +24,7 @@ Resources:
                 "description": "Rule 1",
                 "selection": {
                   "tagStatus": "tagged",
-                  "tagPrefixList": ["master"],
+                  "tagPrefixList": ["master-"],
                   "countType": "imageCountMoreThan",
                   "countNumber": 3
                 },
