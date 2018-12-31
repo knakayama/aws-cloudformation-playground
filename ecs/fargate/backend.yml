@@ -16,6 +16,15 @@ Parameters:
   DomainName:
     Type: String
 
+  AcmIdentifier:
+    Type: String
+
+  UserPoolId:
+    Type: String
+
+  UserPoolClientId:
+    Type: String
+
 Resources:
   AlbLogBucket:
     Type: AWS::S3::Bucket
@@ -97,10 +106,22 @@ Resources:
       Protocol: HTTPS
       Port: 443
       Certificates:
-        - CertificateArn: !Sub arn:aws:acm:${AWS::Region}:${AWS::AccountId}:certificate/{{resolve:ssm:MyAcmIdentifier:1}}
+        #- CertificateArn: !Sub arn:aws:acm:${AWS::Region}:${AWS::AccountId}:certificate/{{resolve:ssm:MyAcmIdentifier:1}}
+        - CertificateArn: !Sub arn:aws:acm:${AWS::Region}:${AWS::AccountId}:certificate/${AcmIdentifier}
       DefaultActions:
-        - TargetGroupArn: !Ref AlbTargetGroup
-          Type: forward
+        - Type: authenticate-cognito
+          Order: 1
+          AuthenticateCognitoConfig:
+            UserPoolArn: !Sub arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPoolId}
+            UserPoolClientId: !Ref UserPoolClientId
+            UserPoolDomain: knakayama-alb-auth
+            SessionCookieName: AWSELBAuthSessionCookie
+            Scope: openid
+            SessionTimeout: 604800
+            OnUnauthenticatedRequest: authenticate
+        - Type: forward
+          Order: 2
+          TargetGroupArn: !Ref AlbTargetGroup
 
   TaskExecutionRole:
     Type: AWS::IAM::Role
@@ -156,16 +177,6 @@ Resources:
           FromPort: 0
           ToPort: 65535
           SourceSecurityGroupId: !Ref AlbSecurityGroup
-
-  #RecordSet:
-  #  Type: AWS::Route53::RecordSet
-  #  Properties:
-  #    HostedZoneId: "{{resolve:ssm:MyHostedZone:1}}"
-  #    Name: !Sub fargate.{{resolve:ssm:MyDomain:1}}
-  #    Type: A
-  #    AliasTarget:
-  #      HostedZoneId: !GetAtt Alb.CanonicalHostedZoneID
-  #      DNSName: !GetAtt Alb.DNSName
 
   RecordSet:
     Type: AWS::Route53::RecordSet
