@@ -10,6 +10,10 @@ Parameters:
     Type: String
     Default: network
 
+  AuthStackNamePrefix:
+    Type: String
+    Default: alb-auth
+
   HostedZoneId:
     Type: String
 
@@ -17,12 +21,6 @@ Parameters:
     Type: String
 
   AcmIdentifier:
-    Type: String
-
-  UserPoolId:
-    Type: String
-
-  UserPoolClientId:
     Type: String
 
 Resources:
@@ -88,7 +86,7 @@ Resources:
       HealthCheckIntervalSeconds: 30
       HealthCheckProtocol: HTTP
       HealthCheckPath: /
-      Port: 80
+      Port: 4000
       HealthyThresholdCount: 5
       HealthCheckTimeoutSeconds: 5
       UnhealthyThresholdCount: 2
@@ -112,9 +110,11 @@ Resources:
         - Type: authenticate-cognito
           Order: 1
           AuthenticateCognitoConfig:
-            UserPoolArn: !Sub arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPoolId}
-            UserPoolClientId: !Ref UserPoolClientId
-            UserPoolDomain: knakayama-alb-auth
+            UserPoolArn:
+              Fn::ImportValue: !Sub ${AuthStackNamePrefix}-${Env}-UserPoolArn
+            UserPoolClientId:
+              Fn::ImportValue: !Sub ${AuthStackNamePrefix}-${Env}-UserPoolClientId
+            UserPoolDomain: !Sub alb-auth-${Env}
             SessionCookieName: AWSELBAuthSessionCookie
             Scope: openid
             SessionTimeout: 604800
